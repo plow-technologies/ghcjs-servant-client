@@ -108,13 +108,16 @@ performRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl
                -> EitherT ServantError IO ( Int, ByteString, MediaType
                                           , [HTTP.Header])
 performRequest reqMethod req isWantedStatus reqHost = do
-  (status_code, hrds, body) <- liftIO $ makeRequest reqMethod req isWantedStatus reqHost
-  ct <- case lookup "Content-Type" hrds of
-             Nothing -> pure $ "application"//"octet-stream"
-             Just t -> case parseAccept t of
-               Nothing -> left $ InvalidContentTypeHeader (cs t) $ fromStrict body
-               Just t' -> pure t'
-  return (status_code, fromStrict body, ct, hrds)
+  eResp <- liftIO $ makeRequest reqMethod req isWantedStatus reqHost
+  case eResp of
+    (Left err) -> left err
+    (Right (status_code, hrds, body)) -> do
+      ct <- case lookup "Content-Type" hrds of
+                 Nothing -> pure $ "application"//"octet-stream"
+                 Just t -> case parseAccept t of
+                   Nothing -> left $ InvalidContentTypeHeader (cs t) $ fromStrict body
+                   Just t' -> pure t'
+      return (status_code, fromStrict body, ct, hrds)
 
 
 performRequestCT :: MimeUnrender ct result =>
@@ -160,10 +163,10 @@ foreign import javascript unsafe "$1.getAllResponseHeaders()"
   jsXhrResponseHeaders :: JSRef XMLHttpRequest -> IO JSString
 foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
   jsXhrSetRequestHeader :: JSRef XMLHttpRequest -> JSString -> JSString -> IO ()
+foreign import javascript unsafe "$1.statusText"
+  jsXhrGetStatusText :: JSRef XMLHttpRequest -> IO JSString
 foreign import javascript unsafe "xh = $1"
   jsDebugXhr :: JSRef XMLHttpRequest -> IO ()
-foreign import javascript unsafe "console.log($1)"
-  jsDebugJSRef :: JSRef a -> IO ()
 
 
 xhrResponseHeaders :: JSRef XMLHttpRequest -> IO [HTTP.Header]
@@ -180,7 +183,7 @@ buildHeader xs = parseXs $ splitStr xs
         parseXs _ = Nothing
 
 
-makeRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl -> IO (Int, [HTTP.Header], BS.ByteString)
+makeRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
 makeRequest method req isWantedStatus bUrl = do
   jRequest <- jsXhrRequest
   let url = toJSString . show $ buildUrl req bUrl
@@ -191,32 +194,38 @@ makeRequest method req isWantedStatus bUrl = do
   cb <- syncCallback AlwaysRetain True $ do
     state <- fromJSRef =<< jsXhrReadyState jRequest
     when (state == Just 4) $ do
-      statusCode <- fromJSRef =<< jsXhrStatus jRequest
-      when (statusCode >= Just 200 && statusCode < Just 300) $ do
-        bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
-        headers <- xhrResponseHeaders jRequest
-        putMVar resp (fromMaybe (-1) statusCode, headers, bsResp)
+      statusCode <- fromMaybe (-1) <$> (fromJSRef =<< jsXhrStatus jRequest)
+      if (statusCode >= 200 && statusCode < 300)
+        then do
+          bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
+          headers <- xhrResponseHeaders jRequest
+          putMVar resp $ Right (statusCode, headers, bsResp)
+        else do
+          bsStatusText <- (pack <$> fromJSString) <$> jsXhrGetStatusText jRequest
+          putMVar resp $ Left $ FailureResponse (mkStatus statusCode bsStatusText) undefined undefined
+
+
   jsXhrOnReadyStateChange jRequest cb
   case reqBody req of
     Nothing -> jsXhrSend jRequest
     (Just (body, mediaType)) -> do
       jsXhrSetRequestHeader jRequest "Content-Type" $ toJSString $ show mediaType
       b <- toJSRef (decodeUtf8 $ toStrict body)
-      jsDebugJSRef b
       jsXhrSendWith jRequest b
-  jsDebugXhr jRequest
   res <- takeMVar resp
   release cb
   return res
 
 buildUrl :: Req -> BaseUrl -> URI
-buildUrl (Req path qText mBody rAccept hs) (BaseUrl scheme host port) = 
+buildUrl req@(Req path qText mBody rAccept hs) (BaseUrl scheme host port) = 
   nullURI {
     uriScheme = schemeText,
     uriAuthority = Just $ URIAuth "" host portText,
-    uriPath = path
+    uriPath = path,
+    uriQuery = buildQuery req
   }
   where schemeText = case scheme of
                       Http -> "http:"
                       Https -> "https:"
         portText = ":" <> (show port)
+        buildQuery request = unpack $ renderQuery True $ queryTextToQuery qText
