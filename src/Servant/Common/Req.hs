@@ -1,7 +1,12 @@
-{-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable   #-}
+{-# LANGUAGE CPP                  #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE MagicHash            #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns         #-}
+{-# LANGUAGE FlexibleInstances    #-}
+
 module Servant.Common.Req where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -23,6 +28,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Typeable
+import Data.Primitive.ByteArray
+import           Data.Primitive.Addr
+import           Data.ByteString.Unsafe (unsafePackAddressLen)
 import Network.HTTP.Media
 import Network.HTTP.Types
 import qualified Network.HTTP.Types.Header   as HTTP
@@ -32,13 +40,16 @@ import Servant.Common.BaseUrl
 import Servant.Common.Text
 import System.IO.Unsafe
 import GHCJS.Foreign
+import GHCJS.Foreign.Callback
 import GHCJS.Types
 import GHCJS.Marshal
+import GHCJS.Prim hiding (fromJSString, toJSString)
 import Control.Concurrent.MVar
 import Data.List.Split
 import Data.Maybe
 import Data.CaseInsensitive
 import Data.Char
+import Unsafe.Coerce
 
 data ServantError
   = FailureResponse
@@ -62,6 +73,15 @@ data ServantError
   deriving (Show, Typeable)
 
 instance Exception ServantError
+
+data ForeignRetention
+  = NeverRetain                   -- ^ do not retain data unless the callback is directly
+                                  --   referenced by a Haskell thread.
+  | AlwaysRetain                  -- ^ retain references indefinitely, until `freeCallback`
+                                  --   is called (the callback will be kept in memory until it's freed)
+  | DomRetain JSRef               -- ^ retain data as long as the `JSRef` is a DOM element in
+                                  --   `window.document` or in a DOM tree referenced by a Haskell
+                                  --    thread.
 
 data Req = Req
   { reqPath   :: String
@@ -137,41 +157,56 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
   return ()
 
 
-data XMLHttpRequest
+--data XMLHttpRequest
 
 foreign import javascript unsafe "new XMLHttpRequest()" 
-  jsXhrRequest :: IO (JSRef XMLHttpRequest)
+  jsXhrRequest :: IO JSRef
+foreign import javascript unsafe "new XMLHttpRequest()" 
+  jsXhrRequestString :: IO JSString
 foreign import javascript unsafe "$1.open($2, $3, $4)" 
-  jsXhrOpen :: JSRef XMLHttpRequest -> JSString -> JSString -> JSBool -> IO ()
+  jsXhrOpen :: JSRef -> JSString -> JSString -> JSRef -> IO ()
 foreign import javascript unsafe "$1.send()" 
-  jsXhrSend :: JSRef XMLHttpRequest ->  IO ()
+  jsXhrSend :: JSRef ->  IO ()
 foreign import javascript unsafe "$1.send($2)"
-  jsXhrSendWith :: JSRef XMLHttpRequest -> JSRef a -> IO ()
+  jsXhrSendWith :: JSRef -> JSRef -> IO ()
 foreign import javascript unsafe "$1.onreadystatechange = $2"  
-  jsXhrOnReadyStateChange:: JSRef XMLHttpRequest -> JSFun (IO ()) -> IO ()
+  jsXhrOnReadyStateChange:: JSRef -> Callback (IO ()) -> IO ()
 foreign import javascript unsafe "$1.readyState"  
-  jsXhrReadyState:: JSRef XMLHttpRequest -> IO (JSRef Int)
+  jsXhrReadyState:: JSRef -> IO JSRef
 foreign import javascript unsafe "$1.responseText"  
-  jsXhrResponseText:: JSRef XMLHttpRequest -> IO JSString
+  jsXhrResponseText:: JSRef -> IO JSString
 foreign import javascript unsafe "$1.response"  
-  jsXhrResponse:: JSRef XMLHttpRequest -> IO (JSRef a)
+  jsXhrResponse:: JSRef -> IO JSRef
 foreign import javascript unsafe "$1.responseType = $2"  
-  jsXhrResponseType:: JSRef XMLHttpRequest -> JSString -> IO ()
+  jsXhrResponseType:: JSRef -> JSString -> IO ()
 foreign import javascript unsafe "$1.status"  
-  jsXhrStatus:: JSRef XMLHttpRequest -> IO (JSRef Int)
+  jsXhrStatus:: JSRef -> IO JSRef
 foreign import javascript unsafe "$1.getAllResponseHeaders()"
-  jsXhrResponseHeaders :: JSRef XMLHttpRequest -> IO JSString
+  jsXhrResponseHeaders :: JSString -> IO JSString
 foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
-  jsXhrSetRequestHeader :: JSRef XMLHttpRequest -> JSString -> JSString -> IO ()
+  jsXhrSetRequestHeader :: JSRef -> JSString -> JSString -> IO ()
 foreign import javascript unsafe "$1.statusText"
-  jsXhrGetStatusText :: JSRef XMLHttpRequest -> IO JSString
+  jsXhrGetStatusText :: JSRef -> IO JSString
 foreign import javascript unsafe "xh = $1"
-  jsDebugXhr :: JSRef XMLHttpRequest -> IO ()
+  jsDebugXhr :: JSRef -> IO ()
+foreign import javascript safe "h$wrapBuffer($3, true, $1, $2)"
+  js_wrapBuffer :: Int -> Int -> JSRef -> IO JSRef
+foreign import javascript unsafe "h$release($1)"
+  js_release :: Callback (IO ()) -> IO ()
 
+class FromJSString a where
+ fromJSString :: JSString -> a
 
-xhrResponseHeaders :: JSRef XMLHttpRequest -> IO [HTTP.Header]
+class ToJSString a where
+  toJSString :: a -> JSString
+
+instance FromJSString [Char]
+instance ToJSString [Char]
+
+xhrResponseHeaders :: JSString -> IO [HTTP.Header]
 xhrResponseHeaders jReq = do
-  headersStrings <-  T.lines . fromJSString <$> jsXhrResponseHeaders jReq
+  headers <- jsXhrResponseHeaders jReq
+  let headersStrings = T.lines . T.pack . fromJSString $ headers
   return $ catMaybes $ buildHeader <$> headersStrings
 
 
@@ -182,23 +217,50 @@ buildHeader xs = parseXs $ splitStr xs
         parseXs (c:cs) = Just (mk $ encodeUtf8 $ T.strip c, encodeUtf8 $ T.strip $ T.concat cs)
         parseXs _ = Nothing
 
+bufferByteString :: Int        -- ^ offset from the start in bytes
+                 -> Int        -- ^ length in bytes (use zero or a negative number to get the whole ArrayBuffer)
+                 -> JSRef
+                 -> IO BS.ByteString
+bufferByteString offset length buf = do
+  (ByteArray ba) <- wrapBuffer offset length buf
+  byteArrayByteString ba
+
+byteArrayByteString :: ByteArray# -> IO BS.ByteString
+byteArrayByteString arr =
+#ifdef ghcjs_HOST_OS
+  let ba        = ByteArray arr
+      !(Addr a) = byteArrayContents ba
+  in  unsafePackAddressLen (sizeofByteArray ba) a
+#else
+  error "GHCJS.Foreign.byteArrayToByteString: not JS"
+#endif
+
+wrapBuffer :: Int          -- ^ offset from the start in bytes, if this is not a multiple of 8,
+                           --   not all types can be read from the ByteArray#
+           -> Int          -- ^ length in bytes (use zero or a negative number to use the whole ArrayBuffer)
+           -> JSRef        -- ^ JavaScript ArrayBuffer object
+           -> IO ByteArray -- ^ result
+wrapBuffer offset size buf = unsafeCoerce <$> js_wrapBuffer offset size buf
+{-# INLINE wrapBuffer #-}
 
 makeRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
 makeRequest method req isWantedStatus bUrl = do
   jRequest <- jsXhrRequest
+  jReqString <- jsXhrRequestString
   let url = toJSString . show $ buildUrl req bUrl
       methodText = toJSString $ unpack method
   jsXhrOpen jRequest methodText url jsTrue
   jsXhrResponseType jRequest "arraybuffer"
   resp <- newEmptyMVar
-  cb <- syncCallback AlwaysRetain True $ do
-    state <- fromJSRef =<< jsXhrReadyState jRequest
+  cb <- syncCallback ThrowWouldBlock $ do
+    r <- jsXhrReadyState jRequest
+    state <- fromJSRef r
     when (state == Just 4) $ do
       statusCode <- fromMaybe (-1) <$> (fromJSRef =<< jsXhrStatus jRequest)
       if (statusCode >= 200 && statusCode < 300)
         then do
           bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
-          headers <- xhrResponseHeaders jRequest
+          headers <- xhrResponseHeaders jReqString
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
           bsStatusText <- (pack <$> fromJSString) <$> jsXhrGetStatusText jRequest
@@ -215,6 +277,10 @@ makeRequest method req isWantedStatus bUrl = do
   res <- takeMVar resp
   release cb
   return res
+
+release :: Callback (IO ()) -- ^ the callback
+                 -> IO ()
+release = js_release
 
 buildUrl :: Req -> BaseUrl -> URI
 buildUrl req@(Req path qText mBody rAccept hs) (BaseUrl scheme host port) = 
