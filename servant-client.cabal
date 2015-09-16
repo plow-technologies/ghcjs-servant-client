@@ -81,3 +81,4 @@ test-suite spec
     , text
     , wai
     , warp
+    , http-client

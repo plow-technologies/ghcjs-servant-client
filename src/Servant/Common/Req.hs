@@ -39,17 +39,22 @@ import Servant.API.ContentTypes
 import Servant.Common.BaseUrl
 import Servant.Common.Text
 import System.IO.Unsafe
-import GHCJS.Foreign
-import GHCJS.Foreign.Callback
-import GHCJS.Types
+import GHCJS.Foreign (jsTrue)
+import GHCJS.Foreign.Callback (Callback (..)
+                              , OnBlocked(..)
+                              , syncCallback)
+
+import Data.JSString (JSString)
+import qualified Data.JSString as JSString 
+
 import GHCJS.Marshal
-import GHCJS.Prim hiding (fromJSString, toJSString)
+import GHCJS.Prim --hiding (fromJSString, toJSString)
 import Control.Concurrent.MVar
 import Data.List.Split
 import Data.Maybe
 import Data.CaseInsensitive
 import Data.Char
-import Unsafe.Coerce
+import Unsafe.Coerce 
 
 data ServantError
   = FailureResponse
@@ -159,14 +164,42 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
 
 --data XMLHttpRequest
 
+-- foreign import javascript unsafe "new XMLHttpRequest()" 
+--   jsXhrRequest :: IO JSRef
+-- foreign import javascript unsafe "new XMLHttpRequest()" 
+--   jsXhrRequestString :: IO JSString
+-- foreign import javascript unsafe "$1.open($2, $3, $4)" 
+--   jsXhrOpen :: JSRef -> JSRef -> JSRef -> JSRef -> IO ()
+-- foreign import javascript unsafe "$1.send()" 
+--   jsXhrSend :: JSRef ->  IO ()
+-- foreign import javascript unsafe "$1.send($2)"
+--   jsXhrSendWith :: JSRef -> JSRef -> IO ()
+-- foreign import javascript unsafe "$1.onreadystatechange = $2"  
+--   jsXhrOnReadyStateChange:: JSRef -> Callback (IO ()) -> IO ()
+-- foreign import javascript unsafe "$1.readyState"  
+--   jsXhrReadyState:: JSRef -> IO JSRef
+-- foreign import javascript unsafe "$1.responseText"  
+--   jsXhrResponseText:: JSRef -> IO JSString
+-- foreign import javascript unsafe "$1.response"  
+--   jsXhrResponse:: JSRef -> IO JSRef
+-- foreign import javascript unsafe "$1.responseType = $2"  
+--   jsXhrResponseType:: JSRef -> JSString -> IO ()
+-- foreign import javascript unsafe "$1.status"  
+--   jsXhrStatus:: JSRef -> IO JSRef
+-- foreign import javascript unsafe "$1.getAllResponseHeaders()"
+--   jsXhrResponseHeaders :: JSString -> IO JSRef
+-- foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
+--   jsXhrSetRequestHeader :: JSRef -> JSString -> JSString -> IO ()
+-- foreign import javascript unsafe "$1.statusText"
+--   jsXhrGetStatusText :: JSRef -> IO JSString
+-- foreign import javascript unsafe "xh = $1"
+--   jsDebugXhr :: JSRef -> IO ()
 foreign import javascript unsafe "new XMLHttpRequest()" 
   jsXhrRequest :: IO JSRef
-foreign import javascript unsafe "new XMLHttpRequest()" 
-  jsXhrRequestString :: IO JSString
 foreign import javascript unsafe "$1.open($2, $3, $4)" 
   jsXhrOpen :: JSRef -> JSString -> JSString -> JSRef -> IO ()
 foreign import javascript unsafe "$1.send()" 
-  jsXhrSend :: JSRef ->  IO ()
+  jsXhrSend :: JSRef -> IO ()
 foreign import javascript unsafe "$1.send($2)"
   jsXhrSendWith :: JSRef -> JSRef -> IO ()
 foreign import javascript unsafe "$1.onreadystatechange = $2"  
@@ -182,7 +215,7 @@ foreign import javascript unsafe "$1.responseType = $2"
 foreign import javascript unsafe "$1.status"  
   jsXhrStatus:: JSRef -> IO JSRef
 foreign import javascript unsafe "$1.getAllResponseHeaders()"
-  jsXhrResponseHeaders :: JSString -> IO JSString
+  jsXhrResponseHeaders :: JSRef -> IO JSString
 foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
   jsXhrSetRequestHeader :: JSRef -> JSString -> JSString -> IO ()
 foreign import javascript unsafe "$1.statusText"
@@ -194,19 +227,10 @@ foreign import javascript safe "h$wrapBuffer($3, true, $1, $2)"
 foreign import javascript unsafe "h$release($1)"
   js_release :: Callback (IO ()) -> IO ()
 
-class FromJSString a where
- fromJSString :: JSString -> a
-
-class ToJSString a where
-  toJSString :: a -> JSString
-
-instance FromJSString [Char]
-instance ToJSString [Char]
-
-xhrResponseHeaders :: JSString -> IO [HTTP.Header]
+xhrResponseHeaders :: JSRef -> IO [HTTP.Header]
 xhrResponseHeaders jReq = do
-  headers <- jsXhrResponseHeaders jReq
-  let headersStrings = T.lines . T.pack . fromJSString $ headers
+  (headers :: JSString) <- jsXhrResponseHeaders jReq
+  let headersStrings = T.lines . T.pack . JSString.unpack $ headers
   return $ catMaybes $ buildHeader <$> headersStrings
 
 
@@ -246,32 +270,32 @@ wrapBuffer offset size buf = unsafeCoerce <$> js_wrapBuffer offset size buf
 makeRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
 makeRequest method req isWantedStatus bUrl = do
   jRequest <- jsXhrRequest
-  jReqString <- jsXhrRequestString
-  let url = toJSString . show $ buildUrl req bUrl
-      methodText = toJSString $ unpack method
+  let url = JSString.pack . show  $ buildUrl req bUrl
+      methodText = JSString.pack $ unpack method
   jsXhrOpen jRequest methodText url jsTrue
   jsXhrResponseType jRequest "arraybuffer"
   resp <- newEmptyMVar
   cb <- syncCallback ThrowWouldBlock $ do
-    r <- jsXhrReadyState jRequest
+    r <- jsXhrReadyState jRequest :: IO JSRef
     state <- fromJSRef r
-    when (state == Just 4) $ do
+    when ((state :: Maybe Int) == Just 4) $ do
       statusCode <- fromMaybe (-1) <$> (fromJSRef =<< jsXhrStatus jRequest)
       if (statusCode >= 200 && statusCode < 300)
         then do
           bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
-          headers <- xhrResponseHeaders jReqString
+          headers <- xhrResponseHeaders jRequest
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
-          bsStatusText <- (pack <$> fromJSString) <$> jsXhrGetStatusText jRequest
-          putMVar resp $ Left $ FailureResponse (mkStatus statusCode bsStatusText) undefined undefined
+          bsStatusText <- jsXhrGetStatusText jRequest
+          putMVar resp $ Left $ FailureResponse (mkStatus statusCode .
+                                                       pack . JSString.unpack $ bsStatusText) undefined undefined
 
 
   jsXhrOnReadyStateChange jRequest cb
   case reqBody req of
     Nothing -> jsXhrSend jRequest
     (Just (body, mediaType)) -> do
-      jsXhrSetRequestHeader jRequest "Content-Type" $ toJSString $ show mediaType
+      jsXhrSetRequestHeader jRequest "Content-Type" $ JSString.pack $ show mediaType
       b <- toJSRef (decodeUtf8 $ toStrict body)
       jsXhrSendWith jRequest b
   res <- takeMVar resp
