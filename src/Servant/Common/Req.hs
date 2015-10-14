@@ -84,7 +84,7 @@ data ForeignRetention
                                   --   referenced by a Haskell thread.
   | AlwaysRetain                  -- ^ retain references indefinitely, until `freeCallback`
                                   --   is called (the callback will be kept in memory until it's freed)
-  | DomRetain JSRef               -- ^ retain data as long as the `JSRef` is a DOM element in
+  | DomRetain JSVal               -- ^ retain data as long as the `JSVal` is a DOM element in
                                   --   `window.document` or in a DOM tree referenced by a Haskell
                                   --    thread.
 
@@ -195,39 +195,39 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
 -- foreign import javascript unsafe "xh = $1"
 --   jsDebugXhr :: JSRef -> IO ()
 foreign import javascript unsafe "new XMLHttpRequest()" 
-  jsXhrRequest :: IO JSRef
+  jsXhrRequest :: IO JSVal
 foreign import javascript unsafe "$1.open($2, $3, $4)" 
-  jsXhrOpen :: JSRef -> JSString -> JSString -> JSRef -> IO ()
+  jsXhrOpen :: JSVal -> JSString -> JSString -> JSVal -> IO ()
 foreign import javascript unsafe "$1.send()" 
-  jsXhrSend :: JSRef -> IO ()
+  jsXhrSend :: JSVal -> IO ()
 foreign import javascript unsafe "$1.send($2)"
-  jsXhrSendWith :: JSRef -> JSRef -> IO ()
+  jsXhrSendWith :: JSVal -> JSVal -> IO ()
 foreign import javascript unsafe "$1.onreadystatechange = $2"  
-  jsXhrOnReadyStateChange:: JSRef -> Callback (IO ()) -> IO ()
+  jsXhrOnReadyStateChange:: JSVal -> Callback (IO ()) -> IO ()
 foreign import javascript unsafe "$1.readyState"  
-  jsXhrReadyState:: JSRef -> IO JSRef
+  jsXhrReadyState:: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.responseText"  
-  jsXhrResponseText:: JSRef -> IO JSString
+  jsXhrResponseText:: JSVal -> IO JSString
 foreign import javascript unsafe "$1.response"  
-  jsXhrResponse:: JSRef -> IO JSRef
+  jsXhrResponse:: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.responseType = $2"  
-  jsXhrResponseType:: JSRef -> JSString -> IO ()
+  jsXhrResponseType:: JSVal -> JSString -> IO ()
 foreign import javascript unsafe "$1.status"  
-  jsXhrStatus:: JSRef -> IO JSRef
+  jsXhrStatus:: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.getAllResponseHeaders()"
-  jsXhrResponseHeaders :: JSRef -> IO JSString
+  jsXhrResponseHeaders :: JSVal -> IO JSString
 foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
-  jsXhrSetRequestHeader :: JSRef -> JSString -> JSString -> IO ()
+  jsXhrSetRequestHeader :: JSVal -> JSString -> JSString -> IO ()
 foreign import javascript unsafe "$1.statusText"
-  jsXhrGetStatusText :: JSRef -> IO JSString
+  jsXhrGetStatusText :: JSVal -> IO JSString
 foreign import javascript unsafe "xh = $1"
-  jsDebugXhr :: JSRef -> IO ()
+  jsDebugXhr :: JSVal -> IO ()
 foreign import javascript safe "h$wrapBuffer($3, true, $1, $2)"
-  js_wrapBuffer :: Int -> Int -> JSRef -> IO JSRef
+  js_wrapBuffer :: Int -> Int -> JSVal -> IO JSVal
 foreign import javascript unsafe "h$release($1)"
   js_release :: Callback (IO ()) -> IO ()
 
-xhrResponseHeaders :: JSRef -> IO [HTTP.Header]
+xhrResponseHeaders :: JSVal -> IO [HTTP.Header]
 xhrResponseHeaders jReq = do
   (headers :: JSString) <- jsXhrResponseHeaders jReq
   let headersStrings = T.lines . T.pack . JSString.unpack $ headers
@@ -243,7 +243,7 @@ buildHeader xs = parseXs $ splitStr xs
 
 bufferByteString :: Int        -- ^ offset from the start in bytes
                  -> Int        -- ^ length in bytes (use zero or a negative number to get the whole ArrayBuffer)
-                 -> JSRef
+                 -> JSVal
                  -> IO BS.ByteString
 bufferByteString offset length buf = do
   (ByteArray ba) <- wrapBuffer offset length buf
@@ -262,7 +262,7 @@ byteArrayByteString arr =
 wrapBuffer :: Int          -- ^ offset from the start in bytes, if this is not a multiple of 8,
                            --   not all types can be read from the ByteArray#
            -> Int          -- ^ length in bytes (use zero or a negative number to use the whole ArrayBuffer)
-           -> JSRef        -- ^ JavaScript ArrayBuffer object
+           -> JSVal        -- ^ JavaScript ArrayBuffer object
            -> IO ByteArray -- ^ result
 wrapBuffer offset size buf = unsafeCoerce <$> js_wrapBuffer offset size buf
 {-# INLINE wrapBuffer #-}
@@ -276,10 +276,10 @@ makeRequest method req isWantedStatus bUrl = do
   jsXhrResponseType jRequest "arraybuffer"
   resp <- newEmptyMVar
   cb <- syncCallback ThrowWouldBlock $ do
-    r <- jsXhrReadyState jRequest :: IO JSRef
-    state <- fromJSRef r
+    r <- jsXhrReadyState jRequest :: IO JSVal
+    state <- fromJSVal r
     when ((state :: Maybe Int) == Just 4) $ do
-      statusCode <- fromMaybe (-1) <$> (fromJSRef =<< jsXhrStatus jRequest)
+      statusCode <- fromMaybe (-1) <$> (fromJSVal =<< jsXhrStatus jRequest)
       if (statusCode >= 200 && statusCode < 300)
         then do
           bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
@@ -296,7 +296,7 @@ makeRequest method req isWantedStatus bUrl = do
     Nothing -> jsXhrSend jRequest
     (Just (body, mediaType)) -> do
       jsXhrSetRequestHeader jRequest "Content-Type" $ JSString.pack $ show mediaType
-      b <- toJSRef (decodeUtf8 $ toStrict body)
+      b <- toJSVal (decodeUtf8 $ toStrict body)
       jsXhrSendWith jRequest b
   res <- takeMVar resp
   release cb
