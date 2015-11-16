@@ -287,8 +287,12 @@ makeRequest method req isWantedStatus bUrl = do
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
           bsStatusText <- jsXhrGetStatusText jRequest
+          bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
+
           putMVar resp $ Left $ FailureResponse (mkStatus statusCode .
-                                                       pack . JSString.unpack $ bsStatusText) undefined undefined
+                                                       pack . JSString.unpack $ bsStatusText)
+                                                ("unknown" // "unknown")
+                                                (fromStrict bsResp)
 
 
   jsXhrOnReadyStateChange jRequest cb
