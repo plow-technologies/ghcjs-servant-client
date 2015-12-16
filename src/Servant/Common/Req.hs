@@ -45,7 +45,7 @@ import GHCJS.Foreign.Callback (Callback (..)
                               , syncCallback)
 
 import Data.JSString (JSString)
-import qualified Data.JSString as JSString 
+import qualified Data.JSString as JSString
 
 import GHCJS.Marshal
 import GHCJS.Prim --hiding (fromJSString, toJSString)
@@ -54,7 +54,7 @@ import Data.List.Split
 import Data.Maybe
 import Data.CaseInsensitive
 import Data.Char
-import Unsafe.Coerce 
+import Unsafe.Coerce
 
 data ServantError
   = FailureResponse
@@ -129,7 +129,7 @@ setRQBody b t req = req { reqBody = Just (b, t) }
 displayHttpRequest :: Method -> String
 displayHttpRequest httpmethod = "HTTP " ++ cs httpmethod ++ " request"
 
-performRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl
+performRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl
                -> EitherT ServantError IO ( Int, ByteString, MediaType
                                           , [HTTP.Header])
 performRequest reqMethod req isWantedStatus reqHost = do
@@ -146,7 +146,7 @@ performRequest reqMethod req isWantedStatus reqHost = do
 
 
 performRequestCT :: MimeUnrender ct result =>
-  Proxy ct -> Method -> Req -> [Int] -> BaseUrl -> EitherT ServantError IO ([HTTP.Header], result)
+  Proxy ct -> Method -> Req -> [Int] -> Maybe BaseUrl -> EitherT ServantError IO ([HTTP.Header], result)
 performRequestCT ct reqMethod req wantedStatus reqHost = do
   let acceptCT = contentType ct
   (_status, respBody, respCT, hrds) <-
@@ -156,7 +156,7 @@ performRequestCT ct reqMethod req wantedStatus reqHost = do
     Left err -> left $ DecodeFailure err respCT respBody
     Right val -> return (hrds, val)
 
-performRequestNoBody :: Method -> Req -> [Int] -> BaseUrl -> EitherT ServantError IO ()
+performRequestNoBody :: Method -> Req -> [Int] -> Maybe BaseUrl -> EitherT ServantError IO ()
 performRequestNoBody reqMethod req wantedStatus reqHost = do
   _ <- performRequest reqMethod req (`elem` wantedStatus) reqHost
   return ()
@@ -164,27 +164,27 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
 
 --data XMLHttpRequest
 
--- foreign import javascript unsafe "new XMLHttpRequest()" 
+-- foreign import javascript unsafe "new XMLHttpRequest()"
 --   jsXhrRequest :: IO JSRef
--- foreign import javascript unsafe "new XMLHttpRequest()" 
+-- foreign import javascript unsafe "new XMLHttpRequest()"
 --   jsXhrRequestString :: IO JSString
--- foreign import javascript unsafe "$1.open($2, $3, $4)" 
+-- foreign import javascript unsafe "$1.open($2, $3, $4)"
 --   jsXhrOpen :: JSRef -> JSRef -> JSRef -> JSRef -> IO ()
--- foreign import javascript unsafe "$1.send()" 
+-- foreign import javascript unsafe "$1.send()"
 --   jsXhrSend :: JSRef ->  IO ()
 -- foreign import javascript unsafe "$1.send($2)"
 --   jsXhrSendWith :: JSRef -> JSRef -> IO ()
--- foreign import javascript unsafe "$1.onreadystatechange = $2"  
+-- foreign import javascript unsafe "$1.onreadystatechange = $2"
 --   jsXhrOnReadyStateChange:: JSRef -> Callback (IO ()) -> IO ()
--- foreign import javascript unsafe "$1.readyState"  
+-- foreign import javascript unsafe "$1.readyState"
 --   jsXhrReadyState:: JSRef -> IO JSRef
--- foreign import javascript unsafe "$1.responseText"  
+-- foreign import javascript unsafe "$1.responseText"
 --   jsXhrResponseText:: JSRef -> IO JSString
--- foreign import javascript unsafe "$1.response"  
+-- foreign import javascript unsafe "$1.response"
 --   jsXhrResponse:: JSRef -> IO JSRef
--- foreign import javascript unsafe "$1.responseType = $2"  
+-- foreign import javascript unsafe "$1.responseType = $2"
 --   jsXhrResponseType:: JSRef -> JSString -> IO ()
--- foreign import javascript unsafe "$1.status"  
+-- foreign import javascript unsafe "$1.status"
 --   jsXhrStatus:: JSRef -> IO JSRef
 -- foreign import javascript unsafe "$1.getAllResponseHeaders()"
 --   jsXhrResponseHeaders :: JSString -> IO JSRef
@@ -194,25 +194,25 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
 --   jsXhrGetStatusText :: JSRef -> IO JSString
 -- foreign import javascript unsafe "xh = $1"
 --   jsDebugXhr :: JSRef -> IO ()
-foreign import javascript unsafe "new XMLHttpRequest()" 
+foreign import javascript unsafe "new XMLHttpRequest()"
   jsXhrRequest :: IO JSVal
-foreign import javascript unsafe "$1.open($2, $3, $4)" 
+foreign import javascript unsafe "$1.open($2, $3, $4)"
   jsXhrOpen :: JSVal -> JSString -> JSString -> JSVal -> IO ()
-foreign import javascript unsafe "$1.send()" 
+foreign import javascript unsafe "$1.send()"
   jsXhrSend :: JSVal -> IO ()
 foreign import javascript unsafe "$1.send($2)"
   jsXhrSendWith :: JSVal -> JSVal -> IO ()
-foreign import javascript unsafe "$1.onreadystatechange = $2"  
+foreign import javascript unsafe "$1.onreadystatechange = $2"
   jsXhrOnReadyStateChange:: JSVal -> Callback (IO ()) -> IO ()
-foreign import javascript unsafe "$1.readyState"  
+foreign import javascript unsafe "$1.readyState"
   jsXhrReadyState:: JSVal -> IO JSVal
-foreign import javascript unsafe "$1.responseText"  
+foreign import javascript unsafe "$1.responseText"
   jsXhrResponseText:: JSVal -> IO JSString
-foreign import javascript unsafe "$1.response"  
+foreign import javascript unsafe "$1.response"
   jsXhrResponse:: JSVal -> IO JSVal
-foreign import javascript unsafe "$1.responseType = $2"  
+foreign import javascript unsafe "$1.responseType = $2"
   jsXhrResponseType:: JSVal -> JSString -> IO ()
-foreign import javascript unsafe "$1.status"  
+foreign import javascript unsafe "$1.status"
   jsXhrStatus:: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.getAllResponseHeaders()"
   jsXhrResponseHeaders :: JSVal -> IO JSString
@@ -267,7 +267,7 @@ wrapBuffer :: Int          -- ^ offset from the start in bytes, if this is not a
 wrapBuffer offset size buf = unsafeCoerce <$> js_wrapBuffer offset size buf
 {-# INLINE wrapBuffer #-}
 
-makeRequest :: Method -> Req -> (Int -> Bool) -> BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
+makeRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
 makeRequest method req isWantedStatus bUrl = do
   jRequest <- jsXhrRequest
   let url = JSString.pack . show  $ buildUrl req bUrl
@@ -287,8 +287,12 @@ makeRequest method req isWantedStatus bUrl = do
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
           bsStatusText <- jsXhrGetStatusText jRequest
+          bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
+
           putMVar resp $ Left $ FailureResponse (mkStatus statusCode .
-                                                       pack . JSString.unpack $ bsStatusText) undefined undefined
+                                                       pack . JSString.unpack $ bsStatusText)
+                                                ("unknown" // "unknown")
+                                                (fromStrict bsResp)
 
 
   jsXhrOnReadyStateChange jRequest cb
@@ -306,16 +310,19 @@ release :: Callback (IO ()) -- ^ the callback
                  -> IO ()
 release = js_release
 
-buildUrl :: Req -> BaseUrl -> URI
-buildUrl req@(Req path qText mBody rAccept hs) (BaseUrl scheme host port) = 
-  nullURI {
-    uriScheme = schemeText,
-    uriAuthority = Just $ URIAuth "" host portText,
-    uriPath = path,
-    uriQuery = buildQuery req
-  }
-  where schemeText = case scheme of
-                      Http -> "http:"
-                      Https -> "https:"
+buildUrl :: Req -> Maybe BaseUrl -> URI
+buildUrl req@(Req path qText mBody rAccept hs) baseurl =
+  (baseURI baseurl){uriPath = path, uriQuery = query}
+  where
+    query = unpack $ renderQuery True $ queryTextToQuery qText
+    baseURI Nothing = nullURI
+    baseURI (Just (BaseUrl scheme host port)) =
+      nullURI {
+        uriScheme = schemeText,
+        uriAuthority = Just $ URIAuth "" host portText
+      }
+      where
         portText = ":" <> (show port)
-        buildQuery request = unpack $ renderQuery True $ queryTextToQuery qText
+        schemeText = case scheme of
+                            Http -> "http:"
+                            Https -> "https:"

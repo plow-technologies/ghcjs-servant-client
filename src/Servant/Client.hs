@@ -53,7 +53,7 @@ import           Servant.Common.Req
 -- > postNewBook :: Book -> EitherT String IO Book
 -- > (getAllBooks :<|> postNewBook) = client myApi host
 -- >   where host = BaseUrl Http "localhost" 8080
-client :: HasClient layout => Proxy layout -> BaseUrl -> Client layout
+client :: HasClient layout => Proxy layout -> Maybe BaseUrl -> Client layout
 client p baseurl = clientWithRoute p defReq baseurl
 
 -- | This class lets us define how each API combinator
@@ -61,7 +61,7 @@ client p baseurl = clientWithRoute p defReq baseurl
 -- an internal class, you can just use 'client'.
 class HasClient layout where
   type Client layout :: *
-  clientWithRoute :: Proxy layout -> Req -> BaseUrl -> Client layout
+  clientWithRoute :: Proxy layout -> Req -> Maybe BaseUrl -> Client layout
 
 {-type Client layout = Client layout-}
 
@@ -619,7 +619,7 @@ instance (KnownSymbol sym, HasClient sublayout)
 instance HasClient Raw where
   type Client Raw = H.Method -> EitherT ServantError IO (Int, ByteString, MediaType, [HTTP.Header])
 
-  clientWithRoute :: Proxy Raw -> Req -> BaseUrl -> Client Raw
+  clientWithRoute :: Proxy Raw -> Req -> Maybe BaseUrl -> Client Raw
   clientWithRoute Proxy req baseurl httpMethod = do
     performRequest httpMethod req (const True) baseurl
 
@@ -667,4 +667,3 @@ instance (KnownSymbol path, HasClient sublayout) => HasClient (path :> sublayout
                      baseurl
 
     where p = symbolVal (Proxy :: Proxy path)
-
