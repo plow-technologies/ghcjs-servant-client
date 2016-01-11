@@ -1,15 +1,16 @@
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE InstanceSigs         #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
 #if !MIN_VERSION_base(4,8,0)
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE OverlappingInstances  #-}
 #endif
 -- | This module provides 'client' which can automatically generate
 -- querying functions for each endpoint just from the type representing your
@@ -26,18 +27,22 @@ import           Control.Applicative        ((<$>))
 #endif
 import           Control.Monad
 import           Control.Monad.Trans.Either
-import           Data.ByteString.Lazy       (ByteString)
 import           Data.List
 import           Data.Proxy
 import           Data.String.Conversions
 import           Data.Text                  (unpack)
 import           GHC.TypeLits
-import           Network.HTTP.Media
+import           Network.HTTP.Media         hiding (Accept)
 import qualified Network.HTTP.Types         as H
 import qualified Network.HTTP.Types.Header  as HTTP
 import           Servant.API
 import           Servant.Common.BaseUrl
 import           Servant.Common.Req
+
+
+import           Data.JSString              (JSString(..))
+import           GHCJS.Marshal
+import           GHCJS.Types
 
 -- * Accessing APIs as a Client
 
@@ -127,7 +132,7 @@ instance
          {-# OVERLAPPABLE #-}
 #endif
   -- See https://downloads.haskell.org/~ghc/7.8.2/docs/html/users_guide/type-class-extensions.html#undecidable-instances
-  (MimeUnrender ct a, cts' ~ (ct ': cts)) => HasClient (Delete cts' a) where
+  (GHCJSUnrender ct a, cts' ~ (ct ': cts)) => HasClient (Delete cts' a) where
   type Client (Delete cts' a) = EitherT ServantError IO a
   clientWithRoute Proxy req baseurl =
     snd <$> performRequestCT (Proxy :: Proxy ct) H.methodDelete req [200, 202] baseurl
@@ -150,7 +155,7 @@ instance
          {-# OVERLAPPING #-}
 #endif
   -- See https://downloads.haskell.org/~ghc/7.8.2/docs/html/users_guide/type-class-extensions.html#undecidable-instances
-  ( MimeUnrender ct a, BuildHeadersTo ls, cts' ~ (ct ': cts)
+  ( GHCJSUnrender ct a, BuildHeadersTo ls, cts' ~ (ct ': cts)
   ) => HasClient (Delete cts' (Headers ls a)) where
   type Client (Delete cts' (Headers ls a)) = EitherT ServantError IO (Headers ls a)
   clientWithRoute Proxy req baseurl = do
@@ -167,7 +172,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPABLE #-}
 #endif
-  (MimeUnrender ct result) => HasClient (Get (ct ': cts) result) where
+  (GHCJSUnrender ct result) => HasClient (Get (ct ': cts) result) where
   type Client (Get (ct ': cts) result) = EitherT ServantError IO result
   clientWithRoute Proxy req baseurl =
     snd <$> performRequestCT (Proxy :: Proxy ct) H.methodGet req [200, 203] baseurl
@@ -189,7 +194,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPING #-}
 #endif
-  ( MimeUnrender ct a, BuildHeadersTo ls
+  ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Get (ct ': cts) (Headers ls a)) where
   type Client (Get (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
   clientWithRoute Proxy req baseurl = do
@@ -248,7 +253,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPABLE #-}
 #endif
-  (MimeUnrender ct a) => HasClient (Post (ct ': cts) a) where
+  (GHCJSUnrender ct a) => HasClient (Post (ct ': cts) a) where
   type Client (Post (ct ': cts) a) = EitherT ServantError IO a
   clientWithRoute Proxy req baseurl =
     snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPost req [200,201] baseurl
@@ -270,7 +275,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPING #-}
 #endif
-  ( MimeUnrender ct a, BuildHeadersTo ls
+  ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Post (ct ': cts) (Headers ls a)) where
   type Client (Post (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
   clientWithRoute Proxy req baseurl = do
@@ -287,7 +292,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPABLE #-}
 #endif
-  (MimeUnrender ct a) => HasClient (Put (ct ': cts) a) where
+  (GHCJSUnrender ct a) => HasClient (Put (ct ': cts) a) where
   type Client (Put (ct ': cts) a) = EitherT ServantError IO a
   clientWithRoute Proxy req baseurl =
     snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPut req [200,201] baseurl
@@ -309,7 +314,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPING #-}
 #endif
-  ( MimeUnrender ct a, BuildHeadersTo ls
+  ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Put (ct ': cts) (Headers ls a)) where
   type Client (Put (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
   clientWithRoute Proxy req baseurl = do
@@ -326,7 +331,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPABLE #-}
 #endif
-  (MimeUnrender ct a) => HasClient (Patch (ct ': cts) a) where
+  (GHCJSUnrender ct a) => HasClient (Patch (ct ': cts) a) where
   type Client (Patch (ct ': cts) a) = EitherT ServantError IO a
   clientWithRoute Proxy req baseurl =
     snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPatch req [200,201] baseurl
@@ -348,7 +353,7 @@ instance
 #if MIN_VERSION_base(4,8,0)
          {-# OVERLAPPING #-}
 #endif
-  ( MimeUnrender ct a, BuildHeadersTo ls
+  ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Patch (ct ': cts) (Headers ls a)) where
   type Client (Patch (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
   clientWithRoute Proxy req baseurl = do
@@ -617,7 +622,7 @@ instance (KnownSymbol sym, HasClient sublayout)
 -- | Pick a 'Method' and specify where the server you want to query is. You get
 -- back the full `Response`.
 instance HasClient Raw where
-  type Client Raw = H.Method -> EitherT ServantError IO (Int, ByteString, MediaType, [HTTP.Header])
+  type Client Raw = H.Method -> EitherT ServantError IO (Int, JSVal, MediaType, [HTTP.Header])
 
   clientWithRoute :: Proxy Raw -> Req -> Maybe BaseUrl -> Client Raw
   clientWithRoute Proxy req baseurl httpMethod = do
@@ -642,7 +647,7 @@ instance HasClient Raw where
 -- > addBook = client myApi host
 -- >   where host = BaseUrl Http "localhost" 8080
 -- > -- then you can just use "addBook" to query that endpoint
-instance (MimeRender ct a, HasClient sublayout)
+instance (GHCJSRender ct a, HasClient sublayout)
       => HasClient (ReqBody (ct ': cts) a :> sublayout) where
 
   type Client (ReqBody (ct ': cts) a :> sublayout) =
@@ -651,7 +656,7 @@ instance (MimeRender ct a, HasClient sublayout)
   clientWithRoute Proxy req baseurl body =
     clientWithRoute (Proxy :: Proxy sublayout)
                     (let ctProxy = Proxy :: Proxy ct
-                     in setRQBody (mimeRender ctProxy body)
+                     in setRQBody (ghcjsRender ctProxy body)
                                   (contentType ctProxy)
                                   req
                     )
@@ -667,3 +672,10 @@ instance (KnownSymbol path, HasClient sublayout) => HasClient (path :> sublayout
                      baseurl
 
     where p = symbolVal (Proxy :: Proxy path)
+
+
+class Accept ctype => GHCJSRender ctype a where
+  ghcjsRender :: Proxy ctype -> a -> IO JSVal
+
+instance ToJSVal a => GHCJSRender JSON a where
+  ghcjsRender _ = toJSVal

@@ -6,6 +6,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE BangPatterns         #-}
 {-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
+{-# LANGUAGE QuasiQuotes    #-}
 
 module Servant.Common.Req where
 
@@ -31,7 +33,7 @@ import Data.Typeable
 import Data.Primitive.ByteArray
 import           Data.Primitive.Addr
 import           Data.ByteString.Unsafe (unsafePackAddressLen)
-import Network.HTTP.Media
+import Network.HTTP.Media hiding (Accept)
 import Network.HTTP.Types
 import qualified Network.HTTP.Types.Header   as HTTP
 import Network.URI
@@ -39,7 +41,7 @@ import Servant.API.ContentTypes
 import Servant.Common.BaseUrl
 import Servant.Common.Text
 import System.IO.Unsafe
-import GHCJS.Foreign (jsTrue)
+import GHCJS.Foreign (jsTrue, jsFalse)
 import GHCJS.Foreign.Callback (Callback (..)
                               , OnBlocked(..)
                               , syncCallback)
@@ -55,29 +57,30 @@ import Data.Maybe
 import Data.CaseInsensitive
 import Data.Char
 import Unsafe.Coerce
+import GHCJS.Foreign.QQ
 
 data ServantError
   = FailureResponse
     { responseStatus            :: Status
     , responseContentType       :: MediaType
-    , responseBody              :: ByteString
+    , responseBody              :: JSVal
     }
   | DecodeFailure
     { decodeError               :: String
     , responseContentType       :: MediaType
-    , responseBody              :: ByteString
+    , responseBody              :: JSVal
     }
   | UnsupportedContentType
     { responseContentType       :: MediaType
-    , responseBody              :: ByteString
+    , responseBody              :: JSVal
     }
   | InvalidContentTypeHeader
     { responseContentTypeHeader :: ByteString
-    , responseBody              :: ByteString
+    , responseBody              :: JSVal
     }
-  deriving (Show, Typeable)
+  deriving (Typeable)
 
-instance Exception ServantError
+-- instance Exception ServantError
 
 data ForeignRetention
   = NeverRetain                   -- ^ do not retain data unless the callback is directly
@@ -91,7 +94,7 @@ data ForeignRetention
 data Req = Req
   { reqPath   :: String
   , qs        :: QueryText
-  , reqBody   :: Maybe (ByteString, MediaType)
+  , reqBody   :: Maybe (IO JSVal, MediaType)
   , reqAccept :: [MediaType]
   , headers   :: [(String, Text)]
   }
@@ -123,14 +126,14 @@ addHeader name val req = req { headers = headers req
                                       ++ [(name, toText val)]
                              }
 
-setRQBody :: ByteString -> MediaType -> Req -> Req
+setRQBody :: IO JSVal -> MediaType -> Req -> Req
 setRQBody b t req = req { reqBody = Just (b, t) }
 
 displayHttpRequest :: Method -> String
 displayHttpRequest httpmethod = "HTTP " ++ cs httpmethod ++ " request"
 
 performRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl
-               -> EitherT ServantError IO ( Int, ByteString, MediaType
+               -> EitherT ServantError IO ( Int, JSVal, MediaType
                                           , [HTTP.Header])
 performRequest reqMethod req isWantedStatus reqHost = do
   eResp <- liftIO $ makeRequest reqMethod req isWantedStatus reqHost
@@ -140,19 +143,20 @@ performRequest reqMethod req isWantedStatus reqHost = do
       ct <- case lookup "Content-Type" hrds of
                  Nothing -> pure $ "application"//"octet-stream"
                  Just t -> case parseAccept t of
-                   Nothing -> left $ InvalidContentTypeHeader (cs t) $ fromStrict body
+                   Nothing -> left $ InvalidContentTypeHeader (cs t) body
                    Just t' -> pure t'
-      return (status_code, fromStrict body, ct, hrds)
+      return (status_code, body, ct, hrds)
 
 
-performRequestCT :: MimeUnrender ct result =>
+performRequestCT :: GHCJSUnrender ct result =>
   Proxy ct -> Method -> Req -> [Int] -> Maybe BaseUrl -> EitherT ServantError IO ([HTTP.Header], result)
 performRequestCT ct reqMethod req wantedStatus reqHost = do
   let acceptCT = contentType ct
   (_status, respBody, respCT, hrds) <-
     performRequest reqMethod (req { reqAccept = [acceptCT] }) (`elem` wantedStatus) reqHost
   unless (matches respCT (acceptCT)) $ left $ UnsupportedContentType respCT respBody
-  case mimeUnrender ct respBody of
+  res <- liftIO $ ghcjsUnrender ct respBody
+  case res of
     Left err -> left $ DecodeFailure err respCT respBody
     Right val -> return (hrds, val)
 
@@ -226,6 +230,8 @@ foreign import javascript safe "h$wrapBuffer($3, true, $1, $2)"
   js_wrapBuffer :: Int -> Int -> JSVal -> IO JSVal
 foreign import javascript unsafe "h$release($1)"
   js_release :: Callback (IO ()) -> IO ()
+foreign import javascript unsafe "JSON.stringify($1)"
+  js_stringify :: JSVal -> IO JSVal
 
 xhrResponseHeaders :: JSVal -> IO [HTTP.Header]
 xhrResponseHeaders jReq = do
@@ -267,13 +273,13 @@ wrapBuffer :: Int          -- ^ offset from the start in bytes, if this is not a
 wrapBuffer offset size buf = unsafeCoerce <$> js_wrapBuffer offset size buf
 {-# INLINE wrapBuffer #-}
 
-makeRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], BS.ByteString))
+makeRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl -> IO (Either ServantError (Int, [HTTP.Header], JSVal))
 makeRequest method req isWantedStatus bUrl = do
   jRequest <- jsXhrRequest
   let url = JSString.pack . show  $ buildUrl req bUrl
       methodText = JSString.pack $ unpack method
   jsXhrOpen jRequest methodText url jsTrue
-  jsXhrResponseType jRequest "arraybuffer"
+  jsXhrResponseType jRequest "json"
   resp <- newEmptyMVar
   cb <- syncCallback ThrowWouldBlock $ do
     r <- jsXhrReadyState jRequest :: IO JSVal
@@ -282,17 +288,20 @@ makeRequest method req isWantedStatus bUrl = do
       statusCode <- fromMaybe (-1) <$> (fromJSVal =<< jsXhrStatus jRequest)
       if (statusCode >= 200 && statusCode < 300)
         then do
-          bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
+          bsResp <- jsXhrResponse jRequest
           headers <- xhrResponseHeaders jRequest
+          jsDebugXhr jRequest
+          [js_| console.log(`jRequest); |]
+          [js_| console.log(`bsResp); |]
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
           bsStatusText <- jsXhrGetStatusText jRequest
-          bsResp <- bufferByteString 0 0 =<< jsXhrResponse jRequest
-
+          respBody <- jsXhrResponse jRequest
+          [js_| console.log(`respBody); |]
           putMVar resp $ Left $ FailureResponse (mkStatus statusCode .
                                                        pack . JSString.unpack $ bsStatusText)
                                                 ("unknown" // "unknown")
-                                                (fromStrict bsResp)
+                                                (respBody)
 
 
   jsXhrOnReadyStateChange jRequest cb
@@ -300,8 +309,7 @@ makeRequest method req isWantedStatus bUrl = do
     Nothing -> jsXhrSend jRequest
     (Just (body, mediaType)) -> do
       jsXhrSetRequestHeader jRequest "Content-Type" $ JSString.pack $ show mediaType
-      b <- toJSVal (decodeUtf8 $ toStrict body)
-      jsXhrSendWith jRequest b
+      jsXhrSendWith jRequest =<< js_stringify =<< body
   res <- takeMVar resp
   release cb
   return res
@@ -326,3 +334,8 @@ buildUrl req@(Req path qText mBody rAccept hs) baseurl =
         schemeText = case scheme of
                             Http -> "http:"
                             Https -> "https:"
+class Accept ctype => GHCJSUnrender ctype a where
+  ghcjsUnrender :: Proxy ctype -> JSVal -> IO (Either String a)
+
+instance FromJSVal a => GHCJSUnrender JSON a where
+  ghcjsUnrender _ val = maybe (Left "Error when marshalling from JSVal") Right  <$> fromJSVal val
