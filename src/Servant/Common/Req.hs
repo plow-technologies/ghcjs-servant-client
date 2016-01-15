@@ -290,9 +290,6 @@ makeRequest method req isWantedStatus bUrl = do
         then do
           bsResp <- jsXhrResponse jRequest
           headers <- xhrResponseHeaders jRequest
-          jsDebugXhr jRequest
-          [js_| console.log(`jRequest); |]
-          [js_| console.log(`bsResp); |]
           putMVar resp $ Right (statusCode, headers, bsResp)
         else do
           bsStatusText <- jsXhrGetStatusText jRequest
