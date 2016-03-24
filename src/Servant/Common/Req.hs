@@ -212,8 +212,19 @@ foreign import javascript unsafe "$1.readyState"
   jsXhrReadyState:: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.responseText"
   jsXhrResponseText:: JSVal -> IO JSString
-foreign import javascript unsafe "$1.response"
-  jsXhrResponse:: JSVal -> IO JSVal
+--foreign import javascript unsafe "$1.response"
+jsXhrResponse:: JSVal -> IO JSVal
+jsXhrResponse jsv = [jsu|
+(function () {
+   if(typeof `jsv.response == "undefined") {
+    return JSON.parse(`jsv.responseText);
+   }
+   else {
+    return `jsv.response;
+   }
+}())
+|]
+                     
 foreign import javascript unsafe "$1.responseType = $2"
   jsXhrResponseType:: JSVal -> JSString -> IO ()
 foreign import javascript unsafe "$1.status"
