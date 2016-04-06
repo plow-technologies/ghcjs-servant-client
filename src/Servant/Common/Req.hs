@@ -216,7 +216,12 @@ foreign import javascript unsafe "$1.responseText"
 jsXhrResponse:: JSVal -> IO JSVal
 jsXhrResponse jsv = [jsu|
 (function () {
-   if(typeof `jsv.response == "undefined") {
+   var contentType = typeof `jsv.response;
+   if( contentType == "undefined" ) {
+    return JSON.parse(`jsv.responseText);
+   }   
+   else if (contentType == "string") //IE11 bug
+   {   
     return JSON.parse(`jsv.responseText);
    }
    else {
