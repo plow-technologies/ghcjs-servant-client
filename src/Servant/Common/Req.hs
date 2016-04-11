@@ -217,10 +217,10 @@ jsXhrResponse:: JSVal -> IO JSVal
 jsXhrResponse jsv = [jsu|
 (function () {
    var contentType = typeof `jsv.response;
-   if( contentType == "undefined" ) {
+   if( contentType == "undefined" && `jsv.responseType !== "json") {
     return JSON.parse(`jsv.responseText);
    }   
-   else if (contentType == "string") //IE11 bug
+   else if (contentType == "string" && `jsv.responseType !== "json") //IE11 bug
    {   
     return JSON.parse(`jsv.responseText);
    }
