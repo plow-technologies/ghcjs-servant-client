@@ -33,23 +33,23 @@ library
     , aeson
     , attoparsec
     , bytestring
+    , case-insensitive
     , either
     , exceptions
+    , ghcjs-base
+    , ghcjs-ffiqq
+    , ghcjs-prim
     , http-media
     , http-types
     , network-uri >= 2.6
+    , primitive
     , safe
     , servant == 0.4.*
+    , split
     , string-conversions
     , text
     , transformers
-    , ghcjs-base
-    , ghcjs-prim          
-    , split
-    , case-insensitive
-    , primitive
-    , ghcjs-ffiqq
-              
+
   hs-source-dirs: src
   default-language: Haskell2010
   ghc-options: -Wall

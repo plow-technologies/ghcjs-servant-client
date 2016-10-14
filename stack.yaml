@@ -1,15 +1,20 @@
-packages:
-  - ./.
-  - location: ../ghcjs-ffiqq
-    extra-dep: true
+resolver: lts-6.14
 
-resolver: lts-5.12
-
-compiler: ghcjs-0.2.0.20160414_ghc-7.10.3
+compiler: ghcjs-0.2.0.9006014_ghc-7.10.3
 compiler-check: match-exact
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.20160414_ghc-7.10.3:
-        url: https://s3.amazonaws.com/ghcjs/ghcjs-0.2.0.20160414_ghc-7.10.3.tar.gz
-        sha1: 6d6f307503be9e94e0c96ef1308c7cf224d06be3
+      ghcjs-0.2.0.9006014_ghc-7.10.3:
+         url: "http://tolysz.org/ghcjs/lts-6.14-9006014.tar.gz"
+         sha1: "8408f2a00654976feb374075c5f9adecf0cea4c8"
+
+
+packages:
+- '.'
+- location:
+    git: git@github.com:ghcjs/ghcjs-ffiqq.git
+    commit: da31b18582542fcfceade5ef6b2aca66662b9e20
+
+extra-deps:
+- servant-0.4.4.7
