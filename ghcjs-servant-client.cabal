@@ -1,55 +1,60 @@
 name:                ghcjs-servant-client
 version:             1.1.1
-synopsis: automatical derivation of querying functions for servant webservices
-description:
-  This library lets you derive automatically Haskell functions that
-  let you query each endpoint of a <http://hackage.haskell.org/package/servant servant> webservice.
-  .
-  See <http://haskell-servant.github.io/tutorial/client.html the client section of the tutorial>.
-  .
-  <https://github.com/haskell-servant/servant/blob/master/servant-client/CHANGELOG.md CHANGELOG>
+synopsis:            undefined
+description:         undefined
 license:             BSD3
 license-file:        LICENSE
-author:              Alp Mestanogullari, Sönke Hahn, Julian K. Arni
+author:              Kevin Cotrone, Michael Sewell, James M.C. Haver II
 maintainer:          alpmestan@gmail.com
-copyright:           2014 Zalora South East Asia Pte Ltd
+copyright:           2016 Plow Technologies
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
-tested-with:         GHC >= 7.8
-homepage:            http://haskell-servant.github.io/
-Bug-reports:         http://github.com/haskell-servant/servant/issues
-source-repository head
-  type: git
-  location: http://github.com/haskell-servant/servant.git
+Bug-reports:         http://github.com/plow-technologies/ghcjs-servant-client/issues
 
 library
-  exposed-modules:
-    Servant.Client
-    Servant.Common.BaseUrl
-    Servant.Common.Req
-  build-depends:
-      base >=4.7 && <5
-    , aeson
-    , attoparsec
-    , bytestring
-    , case-insensitive
-    , either
-    , exceptions
-    , ghcjs-base
-    , ghcjs-ffiqq
-    , ghcjs-prim
-    , http-media
-    , http-types
-    , network-uri >= 2.6
-    , primitive
-    , safe
-    , servant == 0.4.*
-    , split
-    , string-conversions
-    , text
-    , transformers
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+  exposed-modules:     Servant.Client
+                       Servant.Common.BaseUrl
+                       Servant.Common.Req
+  build-depends:       base >=4.7 && <5
+                     , aeson
+                     , attoparsec
+                     , bytestring
+                     , case-insensitive
+                     , either
+                     , exceptions
+                     , ghcjs-base
+                     , ghcjs-ffiqq
+                     , ghcjs-prim
+                     , http-media
+                     , http-types
+                     , network-uri >= 2.6
+                     , primitive
+                     , safe
+                     , servant == 0.4.*
+                     , split
+                     , string-conversions
+                     , text
+                     , transformers
 
-  hs-source-dirs: src
+
+test-suite tests
   default-language: Haskell2010
-  ghc-options: -Wall
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   tests
+  ghc-options:      -threaded -rtsopts -with-rtsopts=-N
+  main-is:          Spec.hs
+  build-depends:    base >= 4 && < 5
+--                  , bytestring
+--                  , ghcjs-hspec-json
+                  , hspec
+--                  , QuickCheck
+--                  , text
+--                  , time
+
+source-repository head
+  type: git
+  location: http://github.com/plow-technologies/ghcjs-servant-client.git
