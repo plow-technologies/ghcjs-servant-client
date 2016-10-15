@@ -50,11 +50,11 @@ createOnpingAuditInterface = do
 
 data ApiInterface = ApiInterface {
   apiGetUser  :: Maybe String -> EitherT ServantError IO (Maybe User)
-, apiPostUser :: User         -> EitherT ServantError IO ()
+, apiPostUser :: User         -> EitherT ServantError IO (String)
 }
 
 type Api = "user" :> QueryParam "name" String :> Get '[JSON] (Maybe User)
-      :<|> "user" :> "add" :> ReqBody '[JSON] User :> Post '[JSON] ()
+      :<|> "user" :> "add" :> ReqBody '[JSON] User :> Post '[JSON] (String)
 
 -- the following doesn't compile
 -- "user" :> "add" :> ReqBody '[JSON] User :> Post '[] ()
@@ -69,7 +69,7 @@ createApiInterface = do
   return $ ApiInterface apiGetUser' apiPostUser'
   where
     apiGetUser'  :: Maybe String -> EitherT ServantError IO (Maybe User)
-    apiPostUser' :: User         -> EitherT ServantError IO ()
+    apiPostUser' :: User         -> EitherT ServantError IO String
     apiGetUser' :<|> apiPostUser' = client api $ Just $ BaseUrl scheme url port
     api :: Proxy Api
     api = Proxy

@@ -14,13 +14,24 @@ import           Test.Hspec
 -- sudo npm install -g xmlhttprequest
 -- export NODE_PATH=/opt/lib/node_modules
 
-foreign import javascript unsafe "var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest;"
-  importXMLHttpRequest :: IO ()
+-- expect package here
+-- $HOME/node_modules/xmlhttprequest
+
+-- module.exports.getTeam = getTeam;
+
+-- foreign import javascript unsafe "var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; module.exports.XMLHttpRequest = XMLHttpRequest;"
+--   importXMLHttpRequest :: IO ()
 
 main :: IO ()
 main = do
-  importXMLHttpRequest
+
+  -- importXMLHttpRequest
   interface <- createApiInterface
-  eitherUser <- runEitherT $ apiGetUser interface (Just "James")
+  -- eitherUser <- runEitherT $ apiGetUser interface (Just "James")
+  eResult <- runEitherT $ apiPostUser interface (User "James" 40)
+  case eResult of
+    Left _ -> return ()
+    Right r -> print r
   print "Hello from test"
-  fail "it failed"
+
+  --fail "it failed"

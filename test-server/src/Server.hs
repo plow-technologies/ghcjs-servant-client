@@ -16,4 +16,4 @@ server = getUserH :<|> postUserH
   where
     -- getUserH :: String -> EitherT ServantErr IO User
     getUserH  mUserName = return (User <$> mUserName <*> pure 25)
-    postUserH user     = return ()
+    postUserH user      = return "Thank You"

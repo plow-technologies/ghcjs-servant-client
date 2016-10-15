@@ -10,7 +10,7 @@ import Servant
 import Servant.API
 
 type Api = "user" :> QueryParam "name" String :> Get '[JSON] (Maybe User)
-      :<|> "user" :> "add" :> ReqBody '[JSON] User :> Post '[] ()
+      :<|> "user" :> "add" :> ReqBody '[JSON] User :> Post '[JSON] (String)
 
 data User = User {
   name :: String

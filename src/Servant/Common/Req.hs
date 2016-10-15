@@ -198,8 +198,19 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
 --   jsXhrGetStatusText :: JSRef -> IO JSString
 -- foreign import javascript unsafe "xh = $1"
 --   jsDebugXhr :: JSRef -> IO ()
-foreign import javascript unsafe "new XMLHttpRequest()"
+
+
+--foreign import javascript unsafe "new XMLHttpRequest()"
+--  jsXhrRequest :: IO JSVal
+
+-- testing only
+-- foreign import javascript unsafe "var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; new XMLHttpRequest();"
+-- tests are performed with node. it doesnt natively hav XMLHttpRequest
+foreign import javascript unsafe "(function () {var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; return new XMLHttpRequest(); }())"
   jsXhrRequest :: IO JSVal
+--   importXMLHttpRequest :: IO ()
+
+
 foreign import javascript unsafe "$1.open($2, $3, $4)"
   jsXhrOpen :: JSVal -> JSString -> JSString -> JSVal -> IO ()
 foreign import javascript unsafe "$1.send()"
@@ -219,9 +230,9 @@ jsXhrResponse jsv = [jsu|
    var contentResponse = typeof `jsv.response;
    if( contentResponse == "undefined" ) { //This takes care of the lack of a 'response' field in ie9
     return JSON.parse(`jsv.responseText);
-   }   
+   }
    else if (contentResponse == "string" ) //IE11 bug
-   {   
+   {
     return JSON.parse(`jsv.response);
    }
    else {
@@ -229,7 +240,7 @@ jsXhrResponse jsv = [jsu|
    }
 }())
 |]
-                     
+
 foreign import javascript unsafe "$1.responseType = $2"
   jsXhrResponseType:: JSVal -> JSString -> IO ()
 foreign import javascript unsafe "$1.status"
