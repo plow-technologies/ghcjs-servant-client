@@ -16,5 +16,15 @@ packages:
     git: git@github.com:ghcjs/ghcjs-ffiqq.git
     commit: da31b18582542fcfceade5ef6b2aca66662b9e20
 
+# for testing
+- location:
+    git: git@github.com:plow-technologies/ghcjs-jsval-combinators.git
+    commit: 923d40ffee0cb4a824859119aa5c98b8d2d24bad
+  extra-dep: true
+- location:
+    git: git@github.com:plow-technologies/ghcjs-hspec-json.git
+    commit: a8452b13252411db2f46c803258eee719646aea6
+  extra-dep: true  
+
 extra-deps:
 - servant-0.4.4.7

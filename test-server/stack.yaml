@@ -1,0 +1,8 @@
+resolver: lts-6.14
+
+packages:
+- '.'
+
+extra-deps:
+- servant-0.4.4.7
+- servant-server-0.4.4.7
