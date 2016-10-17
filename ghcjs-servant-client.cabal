@@ -41,7 +41,7 @@ library
                      , transformers
 
 
-test-suite tests
+test-suite ghcjs-servant-client-tests
   hs-source-dirs:      tests
   default-language:    Haskell2010
   type:                exitcode-stdio-1.0
@@ -55,7 +55,7 @@ test-suite tests
                      , ghcjs-base
                      , ghcjs-ffiqq
                      , ghcjs-hspec-json
-                     , ghcjs-jsval-combinators                     
+                     , ghcjs-jsval-combinators
                      , ghcjs-servant-client
                      , hspec
                      , servant

@@ -24,37 +24,22 @@ import qualified Data.Text as T
 import           Servant.API
 import           Servant.Client
 
-
--- import           GHCJS.Foreign                hiding (String)
 import           GHCJS.JSVal.Combinators
 import           GHCJS.Marshal
-{-
-data OnpingAuditInterface = OnpingAuditInterface {
-  apiGetAuditViews :: OPAAuditQuery -> EitherT ServantError IO [OPAAuditView]
-, apiGetUsers      :: EitherT ServantError IO [UserIdAndIdent]
-}
-
-createOnpingAuditInterface :: IO (OnpingAuditInterface)
-createOnpingAuditInterface = do
-  return $ OnpingAuditInterface apiGetAuditViews' apiGetUsers'
-  where
-    apiGetAuditViews' :: OPAAuditQuery -> EitherT ServantError IO [OPAAuditView]
-    apiGetUsers'      :: EitherT ServantError IO [UserIdAndIdent]
-    apiGetAuditViews' :<|> apiGetUsers' = client api $ Just $ BaseUrl scheme url port
-    api :: Proxy OnpingAuditAPI
-    api = Proxy
-    url = "127.0.0.1"
-    port = 3000
-    scheme = Http
--}
 
 data ApiInterface = ApiInterface {
-  apiGetUser  :: Maybe String -> EitherT ServantError IO (Maybe User)
-, apiPostUser :: User         -> EitherT ServantError IO (String)
+  apiGetUser    :: Maybe String -> EitherT ServantError IO (Maybe User)
+, apiPostUser   :: User         -> EitherT ServantError IO (Maybe User)
+, apiDeleteUser :: Maybe String -> EitherT ServantError IO (Bool)
+, apiExistsUser :: Maybe String -> EitherT ServantError IO (Bool)
+, apiUpsertUser :: User         -> EitherT ServantError IO (User)
 }
 
-type Api = "user" :> QueryParam "name" String :> Get '[JSON] (Maybe User)
-      :<|> "user" :> "add" :> ReqBody '[JSON] User :> Post '[JSON] (String)
+type Api = "user"             :> QueryParam "name" String :> Get '[JSON] (Maybe User)
+      :<|> "user" :> "add"    :> ReqBody    '[JSON] User  :> Post   '[JSON] (Maybe User)
+      :<|> "user" :> "delete" :> QueryParam "name" String :> Delete '[JSON] Bool
+      :<|> "user" :> "exists" :> QueryParam "name" String :> Get '[JSON] Bool
+      :<|> "user" :> "upsert" :> ReqBody    '[JSON] User  :> Post '[JSON] User
 
 -- the following doesn't compile
 -- "user" :> "add" :> ReqBody '[JSON] User :> Post '[] ()
@@ -66,11 +51,14 @@ data User = User {
 
 createApiInterface :: IO (ApiInterface)
 createApiInterface = do
-  return $ ApiInterface apiGetUser' apiPostUser'
+  return $ ApiInterface apiGetUser' apiPostUser' apiDeleteUser' apiExistsUser' apiUpsertUser'
   where
-    apiGetUser'  :: Maybe String -> EitherT ServantError IO (Maybe User)
-    apiPostUser' :: User         -> EitherT ServantError IO String
-    apiGetUser' :<|> apiPostUser' = client api $ Just $ BaseUrl scheme url port
+    apiGetUser'    :: Maybe String -> EitherT ServantError IO (Maybe User)
+    apiPostUser'   :: User         -> EitherT ServantError IO (Maybe User)
+    apiDeleteUser' :: Maybe String -> EitherT ServantError IO (Bool)
+    apiExistsUser' :: Maybe String -> EitherT ServantError IO (Bool)
+    apiUpsertUser' :: User         -> EitherT ServantError IO (User)
+    apiGetUser' :<|> apiPostUser' :<|>  apiDeleteUser' :<|> apiExistsUser' :<|> apiUpsertUser' = client api $ Just $ BaseUrl scheme url port
     api :: Proxy Api
     api = Proxy
     url = "127.0.0.1"
@@ -94,6 +82,7 @@ instance ToJSVal User where
       "name" .=> name
     , "age"  .=> age
     ]
+
 instance FromJSVal User where
   fromJSVal o = runMaybeT $
     User <$> o .-> "name"

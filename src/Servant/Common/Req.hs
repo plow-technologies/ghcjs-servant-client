@@ -166,51 +166,12 @@ performRequestNoBody reqMethod req wantedStatus reqHost = do
   return ()
 
 
---data XMLHttpRequest
 
--- foreign import javascript unsafe "new XMLHttpRequest()"
---   jsXhrRequest :: IO JSRef
--- foreign import javascript unsafe "new XMLHttpRequest()"
---   jsXhrRequestString :: IO JSString
--- foreign import javascript unsafe "$1.open($2, $3, $4)"
---   jsXhrOpen :: JSRef -> JSRef -> JSRef -> JSRef -> IO ()
--- foreign import javascript unsafe "$1.send()"
---   jsXhrSend :: JSRef ->  IO ()
--- foreign import javascript unsafe "$1.send($2)"
---   jsXhrSendWith :: JSRef -> JSRef -> IO ()
--- foreign import javascript unsafe "$1.onreadystatechange = $2"
---   jsXhrOnReadyStateChange:: JSRef -> Callback (IO ()) -> IO ()
--- foreign import javascript unsafe "$1.readyState"
---   jsXhrReadyState:: JSRef -> IO JSRef
--- foreign import javascript unsafe "$1.responseText"
---   jsXhrResponseText:: JSRef -> IO JSString
--- foreign import javascript unsafe "$1.response"
---   jsXhrResponse:: JSRef -> IO JSRef
--- foreign import javascript unsafe "$1.responseType = $2"
---   jsXhrResponseType:: JSRef -> JSString -> IO ()
--- foreign import javascript unsafe "$1.status"
---   jsXhrStatus:: JSRef -> IO JSRef
--- foreign import javascript unsafe "$1.getAllResponseHeaders()"
---   jsXhrResponseHeaders :: JSString -> IO JSRef
--- foreign import javascript unsafe "$1.setRequestHeader($2, $3)"
---   jsXhrSetRequestHeader :: JSRef -> JSString -> JSString -> IO ()
--- foreign import javascript unsafe "$1.statusText"
---   jsXhrGetStatusText :: JSRef -> IO JSString
--- foreign import javascript unsafe "xh = $1"
---   jsDebugXhr :: JSRef -> IO ()
-
-
---foreign import javascript unsafe "new XMLHttpRequest()"
---  jsXhrRequest :: IO JSVal
-
--- testing only
 -- foreign import javascript unsafe "var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; new XMLHttpRequest();"
 -- tests are performed with node. it doesnt natively hav XMLHttpRequest
-foreign import javascript unsafe "(function () {var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; return new XMLHttpRequest(); }())"
+-- this makes this function useable in node or javascript
+foreign import javascript unsafe "(function () {if (typeof XMLHttpRequest === 'undefined') { XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; return new XMLHttpRequest(); } else { return new XMLHttpRequest(); } }())"
   jsXhrRequest :: IO JSVal
---   importXMLHttpRequest :: IO ()
-
-
 foreign import javascript unsafe "$1.open($2, $3, $4)"
   jsXhrOpen :: JSVal -> JSString -> JSString -> JSVal -> IO ()
 foreign import javascript unsafe "$1.send()"
@@ -228,14 +189,11 @@ jsXhrResponse:: JSVal -> IO JSVal
 jsXhrResponse jsv = [jsu|
 (function () {
    var contentResponse = typeof `jsv.response;
-   if( contentResponse == "undefined" ) { //This takes care of the lack of a 'response' field in ie9
+   if( contentResponse == "undefined" ) { // This takes care of the lack of a 'response' field in ie9
     return JSON.parse(`jsv.responseText);
-   }
-   else if (contentResponse == "string" ) //IE11 bug
-   {
+   } else if (contentResponse == "string" ) { // IE11 bug
     return JSON.parse(`jsv.response);
-   }
-   else {
+   } else {
     return `jsv.response;
    }
 }())

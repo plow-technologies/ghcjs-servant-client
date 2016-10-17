@@ -1,37 +1,37 @@
-{-# LANGUAGE QuasiQuotes       #-}
-
 module Main where
 
 import           Api
 import           Control.Monad.Trans.Either
 import           Test.Hspec
 
--- eitherAuditViews <- runEitherT $ apiGetAuditViews interface aq
--- var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
--- foreign import javascript unsafe "(function () { var auditTableHandlers = {}; auditTableHandlers.display = $1; return auditTableHandlers;}())"
---   initializeAuditTableHandlers :: AuditTableCallBack -> IO JSVal
-
--- sudo npm install -g xmlhttprequest
--- export NODE_PATH=/opt/lib/node_modules
-
--- expect package here
--- $HOME/node_modules/xmlhttprequest
-
--- module.exports.getTeam = getTeam;
-
--- foreign import javascript unsafe "var XMLHttpRequest = require('xmlhttprequest').XMLHttpRequest; module.exports.XMLHttpRequest = XMLHttpRequest;"
---   importXMLHttpRequest :: IO ()
 
 main :: IO ()
-main = do
+main = hspec spec
 
-  -- importXMLHttpRequest
-  interface <- createApiInterface
-  -- eitherUser <- runEitherT $ apiGetUser interface (Just "James")
-  eResult <- runEitherT $ apiPostUser interface (User "James" 40)
-  case eResult of
-    Left _ -> return ()
-    Right r -> print r
-  print "Hello from test"
+spec :: Spec
+spec = do
+  interface <- runIO createApiInterface
+  describe "ghcjs-servant-client" $ do
+    it "GET QueryParam" $ do
+      eitherUser <- runEitherT $ apiGetUser interface (Just "James")
+      case eitherUser of
+        Left  _ -> fail "GET QueryParam test failed."
+        Right user -> user `shouldBe` (Just (User "James" 25))
 
-  --fail "it failed"
+    it "POST JSON ReqBody" $ do
+      eitherUser <- runEitherT $ apiPostUser interface (User "James" 40)
+      case eitherUser of
+        Left  _ -> fail "POST JSON ReqBody failed."
+        Right user -> user `shouldBe` (Just (User "James" 40))
+
+    it "DELETE QueryParam" $ do
+      eitherResult <- runEitherT $ apiDeleteUser interface (Just "James")
+      case eitherResult of
+        Left  _ -> fail "Delete QueryParam failed."
+        Right r -> r `shouldBe` True
+    
+    it "GET QueryParam" $ do
+      eitherResult <- runEitherT $ apiExistsUser interface (Just "James")
+      case eitherResult of
+        Left  _ -> fail "Delete QueryParam failed."
+        Right r -> r `shouldBe` True
