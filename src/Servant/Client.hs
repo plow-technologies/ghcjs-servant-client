@@ -17,6 +17,7 @@
 -- API.
 module Servant.Client
   ( client
+  , printServantError
   , HasClient(..)
   , ServantError(..)
   , module Servant.Common.BaseUrl
