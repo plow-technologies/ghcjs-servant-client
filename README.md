@@ -35,3 +35,10 @@ stack exec test-server
 And that you have the node package `xmlhttprequest` in the node directory that
 GHJCS is pointing to (on my computer it is `~/node_modules`, it may differ on
 your system).
+
+Then you can run:
+
+```
+stack setup
+stack test
+```
