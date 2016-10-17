@@ -1,0 +1,33 @@
+name:                test-server
+version:             0.1.0.0
+synopsis:            undefined
+description:         undefined
+license:             BSD3
+license-file:        LICENSE
+author:              James M.C. Haver II
+maintainer:          mchaver@gmail.com
+copyright:           2016 Plow Technologies
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Api
+                       Server
+  build-depends:       base >= 4.7 && < 5
+                     , aeson
+                     , servant        == 0.4.4.7
+                     , servant-server == 0.4.4.7
+                     , transformers
+                     , wai
+  default-language:    Haskell2010
+
+executable test-server
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , test-server
+                     , warp
+  default-language:    Haskell2010

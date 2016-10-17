@@ -19,3 +19,26 @@ postNewBook :: Book -> EitherT String IO Book
 (getAllBooks :<|> postNewBook) = client myApi host
   where host = BaseUrl Http "localhost" 8080
 ```
+
+## Testing
+
+Testing right now is a bit fragile. It makes the following assumptions:
+
+You are running the GHC servant-server in test-server:
+
+```
+cd test-server
+stack build
+stack exec test-server
+```
+
+And that you have the node package `xmlhttprequest` in the node directory that
+GHJCS is pointing to (on my computer it is `~/node_modules`, it may differ on
+your system).
+
+Then you can run:
+
+```
+stack setup
+stack test
+```
