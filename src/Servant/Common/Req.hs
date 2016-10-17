@@ -1,63 +1,64 @@
-{-# LANGUAGE DeriveDataTypeable   #-}
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE MagicHash            #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE BangPatterns         #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE MultiParamTypeClasses    #-}
-{-# LANGUAGE QuasiQuotes    #-}
+{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MagicHash             #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 
 module Servant.Common.Req where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
-import Control.Exception
-import Control.Monad
-import Control.Monad.Catch (MonadThrow)
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Either
-import Data.ByteString.Lazy hiding (pack, filter, map, null, elem, unpack)
-import Data.ByteString.Char8 (unpack, pack)
+
+import           Control.Concurrent.MVar
+import           Control.Exception
+import           Control.Monad
+import           Control.Monad.Catch (MonadThrow)
+import           Control.Monad.IO.Class
+import           Control.Monad.Trans.Either
+import           Data.ByteString.Lazy hiding (pack, filter, map, null, elem, unpack)
+import           Data.ByteString.Char8 (unpack, pack)
 import qualified Data.ByteString as BS
-import Data.IORef
-import Data.String
-import Data.String.Conversions
-import Data.Proxy
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Text.Encoding
-import Data.Typeable
-import Data.Primitive.ByteArray
-import           Data.Primitive.Addr
-import           Data.ByteString.Unsafe (unsafePackAddressLen)
-import Network.HTTP.Media hiding (Accept)
-import Network.HTTP.Types
-import qualified Network.HTTP.Types.Header   as HTTP
-import Network.URI
-import Servant.API.ContentTypes
-import Servant.Common.BaseUrl
-import Servant.Common.Text
-import System.IO.Unsafe
-import GHCJS.Foreign (jsTrue, jsFalse)
-import GHCJS.Foreign.Callback (Callback (..)
-                              , OnBlocked(..)
-                              , syncCallback)
-
-import Data.JSString (JSString)
+import           Data.CaseInsensitive
+import           Data.Char
+import           Data.IORef
+import           Data.JSString (JSString)
 import qualified Data.JSString as JSString
+import           Data.String
+import           Data.String.Conversions
+import           Data.Proxy
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Data.List.Split
+import           Data.Maybe
+import           Data.Text.Encoding
+import           Data.Typeable
+import           Data.Primitive.Addr
+import           Data.Primitive.ByteArray
+import           Data.ByteString.Unsafe (unsafePackAddressLen)
+import           GHCJS.Foreign (jsTrue, jsFalse)
+import           GHCJS.Foreign.Callback ( Callback (..)
+                                        , OnBlocked(..)
+                                        , syncCallback)
+import           GHCJS.Foreign.QQ
+import           GHCJS.Marshal
+import           GHCJS.Prim
+import           Network.HTTP.Media hiding (Accept)
+import           Network.HTTP.Types
+import qualified Network.HTTP.Types.Header   as HTTP
+import           Network.URI
+import           Servant.API.ContentTypes
+import           Servant.Common.BaseUrl
+import           Servant.Common.Text
+import           System.IO.Unsafe
+import           Unsafe.Coerce
 
-import GHCJS.Marshal
-import GHCJS.Prim --hiding (fromJSString, toJSString)
-import Control.Concurrent.MVar
-import Data.List.Split
-import Data.Maybe
-import Data.CaseInsensitive
-import Data.Char
-import Unsafe.Coerce
-import GHCJS.Foreign.QQ
+
 
 data ServantError
   = FailureResponse
@@ -80,7 +81,31 @@ data ServantError
     }
   deriving (Typeable)
 
--- instance Exception ServantError
+
+-- there is no show instance because fromJSVal is an IO function
+printServantError :: ServantError -> IO ()
+printServantError (FailureResponse x y z) = do
+  print "FailureResponse"
+  print x
+  print y
+  pz <- (fromJSVal z :: IO (Maybe JSString))
+  print pz
+printServantError (DecodeFailure x y z)   = do
+  print "DecodeFailure"
+  print x
+  print y
+  pz <- (fromJSVal z :: IO (Maybe JSString))
+  print pz
+printServantError (UnsupportedContentType x y) = do
+  print "UnsupportedContentType"
+  print x
+  py <- (fromJSVal y :: IO (Maybe JSString))
+  print py
+printServantError (InvalidContentTypeHeader x y) = do
+  print "InvalidContentTypeHeader"
+  print x
+  py <- (fromJSVal y :: IO (Maybe JSString))
+  print py
 
 data ForeignRetention
   = NeverRetain                   -- ^ do not retain data unless the callback is directly
