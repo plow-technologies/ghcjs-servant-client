@@ -2,10 +2,10 @@ name:                ghcjs-servant-client
 version:             1.1.1
 synopsis:            undefined
 description:         undefined
-license:             BSD3
+license:             MIT
 license-file:        LICENSE
 author:              Kevin Cotrone, Michael Sewell, James M.C. Haver II
-maintainer:          alpmestan@gmail.com
+maintainer:          kevincotrone@gmail.com, michael.sewell@plowtech.net, mchaver@gmail.com
 copyright:           2016 Plow Technologies
 category:            Web
 build-type:          Simple
