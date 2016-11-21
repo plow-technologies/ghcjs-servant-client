@@ -33,14 +33,15 @@ data ApiInterface = ApiInterface {
 , apiDeleteUser :: Maybe String -> EitherT ServantError IO (Bool)
 , apiExistsUser :: Maybe String -> EitherT ServantError IO (Bool)
 , apiUpsertUser :: User         -> EitherT ServantError IO (User)
+, apiPostUsers  :: [User]       -> EitherT ServantError IO [User]
 }
 
-type Api = "user"             :> QueryParam "name" String :> Get '[JSON] (Maybe User)
-      :<|> "user" :> "add"    :> ReqBody    '[JSON] User  :> Post   '[JSON] (Maybe User)
-      :<|> "user" :> "delete" :> QueryParam "name" String :> Delete '[JSON] Bool
-      :<|> "user" :> "exists" :> QueryParam "name" String :> Get '[JSON] Bool
-      :<|> "user" :> "upsert" :> ReqBody    '[JSON] User  :> Post '[JSON] User
-
+type Api = "user"              :> QueryParam "name" String  :> Get    '[JSON] (Maybe User)
+      :<|> "user"  :> "add"    :> ReqBody    '[JSON] User   :> Post   '[JSON] (Maybe User)
+      :<|> "user"  :> "delete" :> QueryParam "name" String  :> Delete '[JSON] Bool
+      :<|> "user"  :> "exists" :> QueryParam "name" String  :> Get    '[JSON] Bool
+      :<|> "user"  :> "upsert" :> ReqBody    '[JSON] User   :> Post   '[JSON] User
+      :<|> "users" :> "add"    :> ReqBody    '[JSON] [User] :> Post   '[JSON] [User]
 -- the following doesn't compile
 -- "user" :> "add" :> ReqBody '[JSON] User :> Post '[] ()
 
@@ -51,14 +52,15 @@ data User = User {
 
 createApiInterface :: IO (ApiInterface)
 createApiInterface = do
-  return $ ApiInterface apiGetUser' apiPostUser' apiDeleteUser' apiExistsUser' apiUpsertUser'
+  return $ ApiInterface apiGetUser' apiPostUser' apiDeleteUser' apiExistsUser' apiUpsertUser' apiPostUsers'
   where
     apiGetUser'    :: Maybe String -> EitherT ServantError IO (Maybe User)
     apiPostUser'   :: User         -> EitherT ServantError IO (Maybe User)
     apiDeleteUser' :: Maybe String -> EitherT ServantError IO (Bool)
     apiExistsUser' :: Maybe String -> EitherT ServantError IO (Bool)
     apiUpsertUser' :: User         -> EitherT ServantError IO (User)
-    apiGetUser' :<|> apiPostUser' :<|>  apiDeleteUser' :<|> apiExistsUser' :<|> apiUpsertUser' = client api $ Just $ BaseUrl scheme url port
+    apiPostUsers'  :: [User]       -> EitherT ServantError IO [User]
+    apiGetUser' :<|> apiPostUser' :<|>  apiDeleteUser' :<|> apiExistsUser' :<|> apiUpsertUser' :<|> apiPostUsers' = client api $ Just $ BaseUrl scheme url port
     api :: Proxy Api
     api = Proxy
     url = "127.0.0.1"
