@@ -1,30 +1,30 @@
-resolver: lts-6.14
-
-compiler: ghcjs-0.2.0.9006014_ghc-7.10.3
+resolver: lts-7.8
+compiler: ghcjs-0.2.1.9007008_ghc-8.0.1
 compiler-check: match-exact
+
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.9006014_ghc-7.10.3:
-         url: "http://tolysz.org/ghcjs/lts-6.14-9006014.tar.gz"
-         sha1: "8408f2a00654976feb374075c5f9adecf0cea4c8"
-
+      ghcjs-0.2.1.9007008_ghc-8.0.1:
+          url: http://ghcjs.tolysz.org/ghc-8.0-2016-11-07-lts-7.8-9007008.tar.gz
+          sha1: 190300a3725cde44b2a08be9ef829f2077bf8825
 
 packages:
 - '.'
 - location:
     git: git@github.com:ghcjs/ghcjs-ffiqq.git
-    commit: da31b18582542fcfceade5ef6b2aca66662b9e20
+    commit: b52338c2dcd3b0707bc8aff2e171411614d4aedb
 
 # for testing
 - location:
     git: git@github.com:plow-technologies/ghcjs-jsval-combinators.git
-    commit: 923d40ffee0cb4a824859119aa5c98b8d2d24bad
+    commit: 46e481dd5b762c785cb5e62b956a19e1e62488f4
   extra-dep: true
 - location:
     git: git@github.com:plow-technologies/ghcjs-hspec-json.git
     commit: a8452b13252411db2f46c803258eee719646aea6
-  extra-dep: true  
+  extra-dep: true
 
 extra-deps:
-- servant-0.4.4.7
+- servant-0.9.1.1
+- http-api-data-0.3.3
