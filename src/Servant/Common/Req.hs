@@ -54,7 +54,6 @@ import qualified Network.HTTP.Types.Header   as HTTP
 import           Network.URI
 import           Servant.API.ContentTypes
 import           Servant.Common.BaseUrl
-
 import           System.IO.Unsafe
 import           Unsafe.Coerce
 import           Web.HttpApiData
@@ -79,6 +78,9 @@ data ServantError
   | InvalidContentTypeHeader
     { responseContentTypeHeader :: ByteString
     , responseBody              :: JSVal
+    }
+  | ConnectionError
+    { connectionError           :: SomeException
     }
   deriving (Typeable)
 
@@ -107,6 +109,9 @@ printServantError (InvalidContentTypeHeader x y) = do
   print x
   py <- (fromJSVal y :: IO (Maybe JSString))
   print py
+printServantError (ConnectionError x) = do
+  print "ConnectionError"
+  print x
 
 data ForeignRetention
   = NeverRetain                   -- ^ do not retain data unless the callback is directly
@@ -132,13 +137,6 @@ appendToPath :: String -> Req -> Req
 appendToPath p req =
   req { reqPath = reqPath req ++ "/" ++ p }
 
-appendToMatrixParams :: String
-                     -> Maybe String
-                     -> Req
-                     -> Req
-appendToMatrixParams pname pvalue req =
-  req { reqPath = reqPath req ++ ";" ++ pname ++ maybe "" ("=" ++) pvalue }
-
 appendToQueryString :: Text       -- ^ param name
                     -> Maybe Text -- ^ param value
                     -> Req
@@ -147,24 +145,71 @@ appendToQueryString pname pvalue req =
   req { qs = qs req ++ [(pname, pvalue)]
       }
 
-{-
-addHeader :: ToText a => String -> a -> Req -> Req
-addHeader name val req = req { headers = headers req
-                                      ++ [(name, toText val)]
-                             }
--}
 addHeader :: ToHttpApiData a => String -> a -> Req -> Req
 addHeader name val req = req { headers = headers req
-                                      ++ [(name, toQueryParam val)]
+                                      ++ [(name, decodeUtf8 (toHeader val))]
                              }
-
 
 setRQBody :: IO JSVal -> MediaType -> Req -> Req
 setRQBody b t req = req { reqBody = Just (b, t) }
 
+-- * performing requests
+
 displayHttpRequest :: Method -> String
 displayHttpRequest httpmethod = "HTTP " ++ cs httpmethod ++ " request"
 
+data ClientEnv
+  = ClientEnv
+  { baseUrl :: BaseUrl
+  }
+
+
+-- | @ClientM@ is the monad in which client functions run. Contains the
+-- 'Manager' and 'BaseUrl' used for requests in the reader environment.
+
+newtype ClientM a = ClientM { runClientM' :: ReaderT ClientEnv (ExceptT ServantError IO) a }
+                    deriving ( Functor, Applicative, Monad, MonadIO, Generic
+                             , MonadReader ClientEnv
+                             , MonadError ServantError
+                             , MonadThrow, MonadCatch
+                             )
+
+runClientM :: ClientM a -> ClientEnv -> IO (Either ServantError a)
+runClientM cm env = runExceptT $ (flip runReaderT env) $ runClientM' cm
+
+performRequest :: Method -> Req
+               -> ClientM ( Int, ByteString, MediaType
+                          , [HTTP.Header], Response ByteString)
+performRequest reqMethod req = do
+  m <- asks manager
+  reqHost <- asks baseUrl
+  partialRequest <- liftIO $ reqToRequest req reqHost
+
+  let request = partialRequest { Client.method = reqMethod }
+
+  eResponse <- liftIO $ catchConnectionError $ Client.httpLbs request m
+
+
+  liftIO $ makeRequest reqMethod req isWantedStatus reqHost
+  case eResponse of
+    Left err ->
+      throwError . ConnectionError $ SomeException err
+
+    Right response -> do
+      let status = Client.responseStatus response
+          body = Client.responseBody response
+          hdrs = Client.responseHeaders response
+          status_code = statusCode status
+      ct <- case lookup "Content-Type" $ Client.responseHeaders response of
+                 Nothing -> pure $ "application"//"octet-stream"
+                 Just t -> case parseAccept t of
+                   Nothing -> throwError $ InvalidContentTypeHeader (cs t) body
+                   Just t' -> pure t'
+      unless (status_code >= 200 && status_code < 300) $
+        throwError $ FailureResponse status ct body
+      return (status_code, body, ct, hdrs, response)
+
+{-
 performRequest :: Method -> Req -> (Int -> Bool) -> Maybe BaseUrl
                -> EitherT ServantError IO ( Int, JSVal, MediaType
                                           , [HTTP.Header])
@@ -180,6 +225,21 @@ performRequest reqMethod req isWantedStatus reqHost = do
                    Just t' -> pure t'
       return (status_code, body, ct, hrds)
 
+-}
+
+performRequestCT :: GHCJSUnrender ct result => Proxy ct -> Method -> Req
+    -> ClientM ([HTTP.Header], result)
+performRequestCT ct reqMethod req = do
+  let acceptCT = contentType ct
+  (_status, respBody, respCT, hrds, _response) <-
+    performRequest reqMethod (req { reqAccept = [acceptCT] })
+  unless (matches respCT (acceptCT)) $ throwError $ UnsupportedContentType respCT respBody
+  res <- liftIO $ ghcjsUnrender ct respBody
+  case res of
+    Left err -> throwError $ DecodeFailure err respCT respBody
+    Right val -> return (hrds, val)
+
+{-
 
 performRequestCT :: GHCJSUnrender ct result =>
   Proxy ct -> Method -> Req -> [Int] -> Maybe BaseUrl -> EitherT ServantError IO ([HTTP.Header], result)
@@ -192,11 +252,12 @@ performRequestCT ct reqMethod req wantedStatus reqHost = do
   case res of
     Left err -> left $ DecodeFailure err respCT respBody
     Right val -> return (hrds, val)
+-}
 
-performRequestNoBody :: Method -> Req -> [Int] -> Maybe BaseUrl -> EitherT ServantError IO ()
-performRequestNoBody reqMethod req wantedStatus reqHost = do
-  _ <- performRequest reqMethod req (`elem` wantedStatus) reqHost
-  return ()
+performRequestNoBody :: Method -> Req -> ClientM [HTTP.Header]
+performRequestNoBody reqMethod req = do
+  (_status, _body, _ct, hdrs, _response) <- performRequest reqMethod req
+  return hdrs
 
 
 

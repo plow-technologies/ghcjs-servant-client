@@ -12,6 +12,7 @@
 #if !MIN_VERSION_base(4,8,0)
 {-# LANGUAGE OverlappingInstances  #-}
 #endif
+
 -- | This module provides 'client' which can automatically generate
 -- querying functions for each endpoint just from the type representing your
 -- API.
@@ -28,11 +29,14 @@ import           Control.Applicative        ((<$>))
 #endif
 import           Control.Monad
 import           Control.Monad.Trans.Either
+import           Data.JSString              (JSString(..))
 import           Data.List
 import           Data.Proxy
 import           Data.String.Conversions
 import           Data.Text                  (unpack)
+import           GHCJS.Marshal
 import           GHC.TypeLits
+import           GHCJS.Types
 import           Network.HTTP.Media         hiding (Accept)
 import qualified Network.HTTP.Types         as H
 import qualified Network.HTTP.Types.Header  as HTTP
@@ -40,34 +44,29 @@ import           Servant.API
 import           Servant.Common.BaseUrl
 import           Servant.Common.Req
 
-
-import           Data.JSString              (JSString(..))
-import           GHCJS.Marshal
-import           GHCJS.Types
-
 -- * Accessing APIs as a Client
 
 -- | 'client' allows you to produce operations to query an API from a client.
 --
 -- > type MyApi = "books" :> Get '[JSON] [Book] -- GET /books
--- >         :<|> "books" :> ReqBody '[JSON] Book :> Post Book -- POST /books
+-- >         :<|> "books" :> ReqBody '[JSON] Book :> Post '[JSON] Book -- POST /books
 -- >
 -- > myApi :: Proxy MyApi
 -- > myApi = Proxy
 -- >
--- > getAllBooks :: EitherT String IO [Book]
--- > postNewBook :: Book -> EitherT String IO Book
--- > (getAllBooks :<|> postNewBook) = client myApi host
--- >   where host = BaseUrl Http "localhost" 8080
-client :: HasClient layout => Proxy layout -> Maybe BaseUrl -> Client layout
-client p baseurl = clientWithRoute p defReq baseurl
+-- > getAllBooks :: ClientM [Book]
+-- > postNewBook :: Book -> ClientM Book
+-- > (getAllBooks :<|> postNewBook) = client myApi
+client :: HasClient api => Proxy api -> Client api
+client p = clientWithRoute p defReq
+
 
 -- | This class lets us define how each API combinator
 -- influences the creation of an HTTP request. It's mostly
 -- an internal class, you can just use 'client'.
-class HasClient layout where
-  type Client layout :: *
-  clientWithRoute :: Proxy layout -> Req -> Maybe BaseUrl -> Client layout
+class HasClient api where
+  type Client api :: *
+  clientWithRoute :: Proxy api -> Req -> Client api
 
 {-type Client layout = Client layout-}
 
@@ -87,9 +86,10 @@ class HasClient layout where
 -- >   where host = BaseUrl Http "localhost" 8080
 instance (HasClient a, HasClient b) => HasClient (a :<|> b) where
   type Client (a :<|> b) = Client a :<|> Client b
-  clientWithRoute Proxy req baseurl =
-    clientWithRoute (Proxy :: Proxy a) req baseurl :<|>
-    clientWithRoute (Proxy :: Proxy b) req baseurl
+  clientWithRoute Proxy req =
+    clientWithRoute (Proxy :: Proxy a) req :<|>
+    clientWithRoute (Proxy :: Proxy b) req
+
 
 -- | If you use a 'Capture' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take
@@ -98,7 +98,7 @@ instance (HasClient a, HasClient b) => HasClient (a :<|> b) where
 -- of this value at the right place in the request path.
 --
 -- You can control how values for this type are turned into
--- text by specifying a 'ToText' instance for your type.
+-- text by specifying a 'ToHttpApiData' instance for your type.
 --
 -- Example:
 --
@@ -107,20 +107,18 @@ instance (HasClient a, HasClient b) => HasClient (a :<|> b) where
 -- > myApi :: Proxy MyApi
 -- > myApi = Proxy
 -- >
--- > getBook :: Text -> EitherT String IO Book
--- > getBook = client myApi host
--- >   where host = BaseUrl Http "localhost" 8080
+-- > getBook :: Text -> ClientM Book
+-- > getBook = client myApi
 -- > -- then you can just use "getBook" to query that endpoint
-instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
-      => HasClient (Capture capture a :> sublayout) where
+instance (KnownSymbol capture, ToHttpApiData a, HasClient api)
+      => HasClient (Capture capture a :> api) where
 
-  type Client (Capture capture a :> sublayout) =
-    a -> Client sublayout
+  type Client (Capture capture a :> api) =
+    a -> Client api
 
-  clientWithRoute Proxy req baseurl val =
-    clientWithRoute (Proxy :: Proxy sublayout)
+  clientWithRoute Proxy req val =
+    clientWithRoute (Proxy :: Proxy api)
                     (appendToPath p req)
-                    baseurl
 
     where p = unpack (toUrlPiece val)
 
@@ -135,8 +133,8 @@ instance
   -- See https://downloads.haskell.org/~ghc/7.8.2/docs/html/users_guide/type-class-extensions.html#undecidable-instances
   (GHCJSUnrender ct a, cts' ~ (ct ': cts)) => HasClient (Delete cts' a) where
   type Client (Delete cts' a) = EitherT ServantError IO a
-  clientWithRoute Proxy req baseurl =
-    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodDelete req [200, 202] baseurl
+  clientWithRoute Proxy req =
+    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodDelete req [200, 202]
 
 -- | If you have a 'Delete xs ()' endpoint, the client expects a 204 No Content
 -- HTTP header.
@@ -146,8 +144,8 @@ instance
 #endif
   HasClient (Delete cts ()) where
   type Client (Delete cts ()) = EitherT ServantError IO ()
-  clientWithRoute Proxy req baseurl =
-    void $ performRequestNoBody H.methodDelete req [204] baseurl
+  clientWithRoute Proxy req =
+    void $ performRequestNoBody H.methodDelete req [204]
 
 -- | If you have a 'Delete xs (Headers ls x)' endpoint, the client expects the
 -- corresponding headers.
@@ -159,8 +157,8 @@ instance
   ( GHCJSUnrender ct a, BuildHeadersTo ls, cts' ~ (ct ': cts)
   ) => HasClient (Delete cts' (Headers ls a)) where
   type Client (Delete cts' (Headers ls a)) = EitherT ServantError IO (Headers ls a)
-  clientWithRoute Proxy req baseurl = do
-    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodDelete req [200, 202] baseurl
+  clientWithRoute Proxy req = do
+    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodDelete req [200, 202]
     return $ Headers { getResponse = resp
                      , getHeadersHList = buildHeadersTo hdrs
                      }
@@ -175,8 +173,8 @@ instance
 #endif
   (GHCJSUnrender ct result) => HasClient (Get (ct ': cts) result) where
   type Client (Get (ct ': cts) result) = EitherT ServantError IO result
-  clientWithRoute Proxy req baseurl =
-    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodGet req [200, 203] baseurl
+  clientWithRoute Proxy req =
+    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodGet req [200, 203]
 
 -- | If you have a 'Get xs ()' endpoint, the client expects a 204 No Content
 -- HTTP status.
@@ -186,8 +184,8 @@ instance
 #endif
   HasClient (Get (ct ': cts) ()) where
   type Client (Get (ct ': cts) ()) = EitherT ServantError IO ()
-  clientWithRoute Proxy req baseurl =
-    performRequestNoBody H.methodGet req [204] baseurl
+  clientWithRoute Proxy req =
+    performRequestNoBody H.methodGet req [204]
 
 -- | If you have a 'Get xs (Headers ls x)' endpoint, the client expects the
 -- corresponding headers.
@@ -198,8 +196,8 @@ instance
   ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Get (ct ': cts) (Headers ls a)) where
   type Client (Get (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
-  clientWithRoute Proxy req baseurl = do
-    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodGet req [200, 203, 204] baseurl
+  clientWithRoute Proxy req = do
+    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodGet req [200, 203, 204]
     return $ Headers { getResponse = resp
                      , getHeadersHList = buildHeadersTo hdrs
                      }
@@ -236,13 +234,12 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
   type Client (Header sym a :> sublayout) =
     Maybe a -> Client sublayout
 
-  clientWithRoute Proxy req baseurl mval =
+  clientWithRoute Proxy req mval =
     clientWithRoute (Proxy :: Proxy sublayout)
                     (maybe req
                            (\value -> Servant.Common.Req.addHeader hname value req)
                            mval
                     )
-                    baseurl
 
     where hname = symbolVal (Proxy :: Proxy sym)
 
@@ -256,8 +253,8 @@ instance
 #endif
   (GHCJSUnrender ct a) => HasClient (Post (ct ': cts) a) where
   type Client (Post (ct ': cts) a) = EitherT ServantError IO a
-  clientWithRoute Proxy req baseurl =
-    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPost req [200,201] baseurl
+  clientWithRoute Proxy req =
+    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPost req [200,201]
 
 -- | If you have a 'Post xs ()' endpoint, the client expects a 204 No Content
 -- HTTP header.
@@ -267,8 +264,8 @@ instance
 #endif
   HasClient (Post (ct ': cts) ()) where
   type Client (Post (ct ': cts) ()) = EitherT ServantError IO ()
-  clientWithRoute Proxy req baseurl =
-    void $ performRequestNoBody H.methodPost req [204] baseurl
+  clientWithRoute Proxy req =
+    void $ performRequestNoBody H.methodPost req [204]
 
 -- | If you have a 'Post xs (Headers ls x)' endpoint, the client expects the
 -- corresponding headers.
@@ -279,8 +276,8 @@ instance
   ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Post (ct ': cts) (Headers ls a)) where
   type Client (Post (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
-  clientWithRoute Proxy req baseurl = do
-    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPost req [200, 201] baseurl
+  clientWithRoute Proxy req = do
+    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPost req [200, 201]
     return $ Headers { getResponse = resp
                      , getHeadersHList = buildHeadersTo hdrs
                      }
@@ -295,8 +292,8 @@ instance
 #endif
   (GHCJSUnrender ct a) => HasClient (Put (ct ': cts) a) where
   type Client (Put (ct ': cts) a) = EitherT ServantError IO a
-  clientWithRoute Proxy req baseurl =
-    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPut req [200,201] baseurl
+  clientWithRoute Proxy req =
+    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPut req [200,201]
 
 -- | If you have a 'Put xs ()' endpoint, the client expects a 204 No Content
 -- HTTP header.
@@ -306,8 +303,8 @@ instance
 #endif
   HasClient (Put (ct ': cts) ()) where
   type Client (Put (ct ': cts) ()) = EitherT ServantError IO ()
-  clientWithRoute Proxy req baseurl =
-    void $ performRequestNoBody H.methodPut req [204] baseurl
+  clientWithRoute Proxy req =
+    void $ performRequestNoBody H.methodPut req [204]
 
 -- | If you have a 'Put xs (Headers ls x)' endpoint, the client expects the
 -- corresponding headers.
@@ -318,8 +315,8 @@ instance
   ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Put (ct ': cts) (Headers ls a)) where
   type Client (Put (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
-  clientWithRoute Proxy req baseurl = do
-    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPut req [200, 201] baseurl
+  clientWithRoute Proxy req = do
+    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPut req [200, 201]
     return $ Headers { getResponse = resp
                      , getHeadersHList = buildHeadersTo hdrs
                      }
@@ -334,8 +331,8 @@ instance
 #endif
   (GHCJSUnrender ct a) => HasClient (Patch (ct ': cts) a) where
   type Client (Patch (ct ': cts) a) = EitherT ServantError IO a
-  clientWithRoute Proxy req baseurl =
-    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPatch req [200,201] baseurl
+  clientWithRoute Proxy req =
+    snd <$> performRequestCT (Proxy :: Proxy ct) H.methodPatch req [200,201]
 
 -- | If you have a 'Patch xs ()' endpoint, the client expects a 204 No Content
 -- HTTP header.
@@ -345,8 +342,8 @@ instance
 #endif
   HasClient (Patch (ct ': cts) ()) where
   type Client (Patch (ct ': cts) ()) = EitherT ServantError IO ()
-  clientWithRoute Proxy req baseurl =
-    void $ performRequestNoBody H.methodPatch req [204] baseurl
+  clientWithRoute Proxy req =
+    void $ performRequestNoBody H.methodPatch req [204]
 
 -- | If you have a 'Patch xs (Headers ls x)' endpoint, the client expects the
 -- corresponding headers.
@@ -357,8 +354,8 @@ instance
   ( GHCJSUnrender ct a, BuildHeadersTo ls
   ) => HasClient (Patch (ct ': cts) (Headers ls a)) where
   type Client (Patch (ct ': cts) (Headers ls a)) = EitherT ServantError IO (Headers ls a)
-  clientWithRoute Proxy req baseurl = do
-    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPatch req [200, 201, 204] baseurl
+  clientWithRoute Proxy req = do
+    (hdrs, resp) <- performRequestCT (Proxy :: Proxy ct) H.methodPatch req [200, 201, 204]
     return $ Headers { getResponse = resp
                      , getHeadersHList = buildHeadersTo hdrs
                      }
@@ -396,13 +393,12 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
     Maybe a -> Client sublayout
 
   -- if mparam = Nothing, we don't add it to the query string
-  clientWithRoute Proxy req baseurl mparam =
+  clientWithRoute Proxy req mparam =
     clientWithRoute (Proxy :: Proxy sublayout)
                     (maybe req
                            (flip (appendToQueryString pname) req . Just)
                            mparamText
                     )
-                    baseurl
 
     where pname  = cs pname'
           pname' = symbolVal (Proxy :: Proxy sym)
@@ -420,7 +416,7 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
 -- under the same query string parameter name.
 --
 -- You can control how values for your type are turned into
--- text by specifying a 'ToText' instance for your type.
+-- text by specifying a 'ToHttpApiData' instance for your type.
 --
 -- Example:
 --
@@ -429,26 +425,24 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
 -- > myApi :: Proxy MyApi
 -- > myApi = Proxy
 -- >
--- > getBooksBy :: [Text] -> EitherT String IO [Book]
--- > getBooksBy = client myApi host
--- >   where host = BaseUrl Http "localhost" 8080
+-- > getBooksBy :: [Text] -> ClientM [Book]
+-- > getBooksBy = client myApi
 -- > -- then you can just use "getBooksBy" to query that endpoint.
 -- > -- 'getBooksBy []' for all books
 -- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
 -- > --   to get all books by Asimov and Heinlein
-instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
-      => HasClient (QueryParams sym a :> sublayout) where
+instance (KnownSymbol sym, ToHttpApiData a, HasClient api)
+      => HasClient (QueryParams sym a :> api) where
 
-  type Client (QueryParams sym a :> sublayout) =
-    [a] -> Client sublayout
+  type Client (QueryParams sym a :> api) =
+    [a] -> Client api
 
-  clientWithRoute Proxy req baseurl paramlist =
-    clientWithRoute (Proxy :: Proxy sublayout)
+  clientWithRoute Proxy req paramlist =
+    clientWithRoute (Proxy :: Proxy api)
                     (foldl' (\ req' -> maybe req' (flip (appendToQueryString pname) req' . Just))
                             req
                             paramlist'
                     )
-                    baseurl
 
     where pname  = cs pname'
           pname' = symbolVal (Proxy :: Proxy sym)
@@ -482,13 +476,12 @@ instance (KnownSymbol sym, HasClient sublayout)
   type Client (QueryFlag sym :> sublayout) =
     Bool -> Client sublayout
 
-  clientWithRoute Proxy req baseurl flag =
+  clientWithRoute Proxy req flag =
     clientWithRoute (Proxy :: Proxy sublayout)
                     (if flag
                        then appendToQueryString paramname Nothing req
                        else req
                     )
-                    baseurl
 
     where paramname = cs $ symbolVal (Proxy :: Proxy sym)
 
@@ -630,11 +623,12 @@ instance (KnownSymbol sym, HasClient sublayout)
 -- | Pick a 'Method' and specify where the server you want to query is. You get
 -- back the full `Response`.
 instance HasClient Raw where
-  type Client Raw = H.Method -> EitherT ServantError IO (Int, JSVal, MediaType, [HTTP.Header])
+  type Client Raw
+    = H.Method -> ClientM (Int, ByteString, MediaType, [HTTP.Header], Response ByteString)
 
-  clientWithRoute :: Proxy Raw -> Req -> Maybe BaseUrl -> Client Raw
-  clientWithRoute Proxy req baseurl httpMethod = do
-    performRequest httpMethod req (const True) baseurl
+  clientWithRoute :: Proxy Raw -> Req -> Client Raw
+  clientWithRoute Proxy req httpMethod = do
+    performRequest httpMethod req
 
 -- | If you use a 'ReqBody' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take
@@ -661,23 +655,21 @@ instance (GHCJSRender ct a, HasClient sublayout)
   type Client (ReqBody (ct ': cts) a :> sublayout) =
     a -> Client sublayout
 
-  clientWithRoute Proxy req baseurl body =
+  clientWithRoute Proxy req body =
     clientWithRoute (Proxy :: Proxy sublayout)
                     (let ctProxy = Proxy :: Proxy ct
                      in setRQBody (ghcjsRender ctProxy body)
                                   (contentType ctProxy)
                                   req
                     )
-                    baseurl
 
 -- | Make the querying function append @path@ to the request path.
 instance (KnownSymbol path, HasClient sublayout) => HasClient (path :> sublayout) where
   type Client (path :> sublayout) = Client sublayout
 
-  clientWithRoute Proxy req baseurl =
+  clientWithRoute Proxy req =
      clientWithRoute (Proxy :: Proxy sublayout)
                      (appendToPath p req)
-                     baseurl
 
     where p = symbolVal (Proxy :: Proxy path)
 
