@@ -34,6 +34,8 @@ data ApiInterface = ApiInterface {
 , apiExistsUser :: Maybe String -> EitherT ServantError IO (Bool)
 , apiUpsertUser :: User         -> EitherT ServantError IO (User)
 , apiPostUsers  :: [User]       -> EitherT ServantError IO [User]
+, apiGetCapture :: Text         -> EitherT ServantError IO Text
+, apiGetCaptureAll :: [Text]         -> EitherT ServantError IO [Text]
 }
 
 type Api = "user"              :> QueryParam "name" String  :> Get    '[JSON] (Maybe User)
@@ -42,6 +44,9 @@ type Api = "user"              :> QueryParam "name" String  :> Get    '[JSON] (M
       :<|> "user"  :> "exists" :> QueryParam "name" String  :> Get    '[JSON] Bool
       :<|> "user"  :> "upsert" :> ReqBody    '[JSON] User   :> Post   '[JSON] User
       :<|> "users" :> "add"    :> ReqBody    '[JSON] [User] :> Post   '[JSON] [User]
+      :<|> "capture"           :> "test" :> Capture "segment" Text      :> Get '[JSON] (Text)
+      :<|> "capture" :> "all"  :> "test" :> CaptureAll "segments" Text  :> Get '[JSON] [Text]
+
 -- the following doesn't compile
 -- "user" :> "add" :> ReqBody '[JSON] User :> Post '[] ()
 
@@ -52,15 +57,17 @@ data User = User {
 
 createApiInterface :: IO (ApiInterface)
 createApiInterface = do
-  return $ ApiInterface apiGetUser' apiPostUser' apiDeleteUser' apiExistsUser' apiUpsertUser' apiPostUsers'
+  return $ ApiInterface apiGetUser' apiPostUser' apiDeleteUser' apiExistsUser' apiUpsertUser' apiPostUsers' apiGetCapture' apiGetCaptureAll'
   where
-    apiGetUser'    :: Maybe String -> EitherT ServantError IO (Maybe User)
-    apiPostUser'   :: User         -> EitherT ServantError IO (Maybe User)
-    apiDeleteUser' :: Maybe String -> EitherT ServantError IO (Bool)
-    apiExistsUser' :: Maybe String -> EitherT ServantError IO (Bool)
-    apiUpsertUser' :: User         -> EitherT ServantError IO (User)
-    apiPostUsers'  :: [User]       -> EitherT ServantError IO [User]
-    apiGetUser' :<|> apiPostUser' :<|>  apiDeleteUser' :<|> apiExistsUser' :<|> apiUpsertUser' :<|> apiPostUsers' = client api $ Just $ BaseUrl scheme url port
+    apiGetUser'       :: Maybe String -> EitherT ServantError IO (Maybe User)
+    apiPostUser'      :: User         -> EitherT ServantError IO (Maybe User)
+    apiDeleteUser'    :: Maybe String -> EitherT ServantError IO (Bool)
+    apiExistsUser'    :: Maybe String -> EitherT ServantError IO (Bool)
+    apiUpsertUser'    :: User         -> EitherT ServantError IO (User)
+    apiPostUsers'     :: [User]       -> EitherT ServantError IO [User]
+    apiGetCapture'    :: Text         -> EitherT ServantError IO (Text)
+    apiGetCaptureAll' :: [Text]       -> EitherT ServantError IO [Text]
+    apiGetUser' :<|> apiPostUser' :<|>  apiDeleteUser' :<|> apiExistsUser' :<|> apiUpsertUser' :<|> apiPostUsers' :<|> apiGetCapture' :<|> apiGetCaptureAll' = client api $ Just $ BaseUrl scheme url port
     api :: Proxy Api
     api = Proxy
     url = "127.0.0.1"

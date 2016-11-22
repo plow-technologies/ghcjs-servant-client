@@ -111,7 +111,7 @@ instance (HasClient a, HasClient b) => HasClient (a :<|> b) where
 -- > getBook = client myApi host
 -- >   where host = BaseUrl Http "localhost" 8080
 -- > -- then you can just use "getBook" to query that endpoint
-{-
+
 instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
       => HasClient (Capture capture a :> sublayout) where
 
@@ -124,7 +124,20 @@ instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
                     baseurl
 
     where p = unpack (toUrlPiece val)
--}
+
+
+instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
+      => HasClient (CaptureAll capture a :> sublayout) where
+
+  type Client (CaptureAll capture a :> sublayout) =
+    [a] -> Client sublayout
+
+  clientWithRoute Proxy req baseurl vals =
+    clientWithRoute (Proxy :: Proxy sublayout)
+                    (foldl' (flip appendToPath) req ps)
+                    baseurl
+    where ps = map (unpack . toUrlPiece) vals
+
 -- | If you have a 'Delete' endpoint in your API, the client
 -- side querying function that is created when calling 'client'
 -- will just require an argument that specifies the scheme, host

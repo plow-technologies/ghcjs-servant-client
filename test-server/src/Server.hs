@@ -12,7 +12,7 @@ serverApi :: Proxy Api
 serverApi = Proxy
 
 server :: Server Api
-server = getUserH :<|> postUserH :<|> deleteUserH :<|> existsUserH :<|> upsertUserH :<|> postUsersH
+server = getUserH :<|> postUserH :<|> deleteUserH :<|> existsUserH :<|> upsertUserH :<|> postUsersH :<|> captureTestH :<|> captureAllTestH
   where
     getUserH  mUserName = do
       liftIO $ print "getUser"
@@ -32,3 +32,9 @@ server = getUserH :<|> postUserH :<|> deleteUserH :<|> existsUserH :<|> upsertUs
     postUsersH users    = do
       liftIO $ print "postUsers"
       return users
+    captureTestH t = do
+      liftIO $ print "captureTest"
+      return t
+    captureAllTestH ts = do
+      liftIO $ print "captureAllTest"
+      return ts
