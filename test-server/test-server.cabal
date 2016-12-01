@@ -17,9 +17,10 @@ library
                        Server
   build-depends:       base >= 4.7 && < 5
                      , aeson
-                     , servant        == 0.4.4.7
-                     , servant-server == 0.4.4.7
+                     , servant        == 0.9.*
+                     , servant-server == 0.9.*
                      , transformers
+                     , text
                      , wai
   default-language:    Haskell2010
 

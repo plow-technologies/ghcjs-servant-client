@@ -111,7 +111,8 @@ instance (HasClient a, HasClient b) => HasClient (a :<|> b) where
 -- > getBook = client myApi host
 -- >   where host = BaseUrl Http "localhost" 8080
 -- > -- then you can just use "getBook" to query that endpoint
-instance (KnownSymbol capture, ToText a, HasClient sublayout)
+
+instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
       => HasClient (Capture capture a :> sublayout) where
 
   type Client (Capture capture a :> sublayout) =
@@ -122,7 +123,20 @@ instance (KnownSymbol capture, ToText a, HasClient sublayout)
                     (appendToPath p req)
                     baseurl
 
-    where p = unpack (toText val)
+    where p = unpack (toUrlPiece val)
+
+
+instance (KnownSymbol capture, ToHttpApiData a, HasClient sublayout)
+      => HasClient (CaptureAll capture a :> sublayout) where
+
+  type Client (CaptureAll capture a :> sublayout) =
+    [a] -> Client sublayout
+
+  clientWithRoute Proxy req baseurl vals =
+    clientWithRoute (Proxy :: Proxy sublayout)
+                    (foldl' (flip appendToPath) req ps)
+                    baseurl
+    where ps = map (unpack . toUrlPiece) vals
 
 -- | If you have a 'Delete' endpoint in your API, the client
 -- side querying function that is created when calling 'client'
@@ -230,7 +244,7 @@ instance
 -- >   where host = BaseUrl Http "localhost" 8080
 -- > -- then you can just use "viewRefer" to query that endpoint
 -- > -- specifying Nothing or e.g Just "http://haskell.org/" as arguments
-instance (KnownSymbol sym, ToText a, HasClient sublayout)
+instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
       => HasClient (Header sym a :> sublayout) where
 
   type Client (Header sym a :> sublayout) =
@@ -389,7 +403,7 @@ instance
 -- > -- then you can just use "getBooksBy" to query that endpoint.
 -- > -- 'getBooksBy Nothing' for all books
 -- > -- 'getBooksBy (Just "Isaac Asimov")' to get all books by Isaac Asimov
-instance (KnownSymbol sym, ToText a, HasClient sublayout)
+instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
       => HasClient (QueryParam sym a :> sublayout) where
 
   type Client (QueryParam sym a :> sublayout) =
@@ -406,7 +420,7 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 
     where pname  = cs pname'
           pname' = symbolVal (Proxy :: Proxy sym)
-          mparamText = fmap toText mparam
+          mparamText = fmap toQueryParam mparam
 
 -- | If you use a 'QueryParams' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take
@@ -436,7 +450,7 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 -- > -- 'getBooksBy []' for all books
 -- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
 -- > --   to get all books by Asimov and Heinlein
-instance (KnownSymbol sym, ToText a, HasClient sublayout)
+instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
       => HasClient (QueryParams sym a :> sublayout) where
 
   type Client (QueryParams sym a :> sublayout) =
@@ -452,7 +466,7 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 
     where pname  = cs pname'
           pname' = symbolVal (Proxy :: Proxy sym)
-          paramlist' = map (Just . toText) paramlist
+          paramlist' = map (Just . toQueryParam) paramlist
 
 -- | If you use a 'QueryFlag' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take
@@ -518,6 +532,8 @@ instance (KnownSymbol sym, HasClient sublayout)
 -- > -- then you can just use "getBooksBy" to query that endpoint.
 -- > -- 'getBooksBy Nothing' for all books
 -- > -- 'getBooksBy (Just "Isaac Asimov")' to get all books by Isaac Asimov
+
+{-
 instance (KnownSymbol sym, ToText a, HasClient sublayout)
       => HasClient (MatrixParam sym a :> sublayout) where
 
@@ -535,6 +551,7 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 
     where pname = symbolVal (Proxy :: Proxy sym)
           mparamText = fmap (cs . toText) mparam
+-}
 
 -- | If you use a 'MatrixParams' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take an
@@ -564,7 +581,9 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 -- > -- 'getBooksBy []' for all books
 -- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
 -- > --   to get all books by Asimov and Heinlein
-instance (KnownSymbol sym, ToText a, HasClient sublayout)
+
+{-
+instance (KnownSymbol sym, ToHttpApiData a, HasClient sublayout)
       => HasClient (MatrixParams sym a :> sublayout) where
 
   type Client (MatrixParams sym a :> sublayout) =
@@ -580,8 +599,8 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 
     where pname  = cs pname'
           pname' = symbolVal (Proxy :: Proxy sym)
-          paramlist' = map (Just . toText) paramlist
-
+          paramlist' = map (Just . toQueryParam) paramlist
+-}
 -- | If you use a 'MatrixFlag' in one of your endpoints in your API,
 -- the corresponding querying function will automatically take an
 -- additional 'Bool' argument.
@@ -604,6 +623,8 @@ instance (KnownSymbol sym, ToText a, HasClient sublayout)
 -- > -- then you can just use "getBooks" to query that endpoint.
 -- > -- 'getBooksBy False' for all books
 -- > -- 'getBooksBy True' to only get _already published_ books
+
+{-
 instance (KnownSymbol sym, HasClient sublayout)
       => HasClient (MatrixFlag sym :> sublayout) where
 
@@ -619,7 +640,7 @@ instance (KnownSymbol sym, HasClient sublayout)
                     baseurl
 
     where paramname = cs $ symbolVal (Proxy :: Proxy sym)
-
+-}
 -- | Pick a 'Method' and specify where the server you want to query is. You get
 -- back the full `Response`.
 instance HasClient Raw where

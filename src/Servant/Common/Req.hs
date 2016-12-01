@@ -33,6 +33,7 @@ import           Data.String
 import           Data.String.Conversions
 import           Data.Proxy
 import           Data.Text (Text)
+import           Data.Text.Encoding
 import qualified Data.Text as T
 import           Data.List.Split
 import           Data.Maybe
@@ -54,9 +55,10 @@ import qualified Network.HTTP.Types.Header   as HTTP
 import           Network.URI
 import           Servant.API.ContentTypes
 import           Servant.Common.BaseUrl
-import           Servant.Common.Text
+
 import           System.IO.Unsafe
 import           Unsafe.Coerce
+import           Web.HttpApiData
 
 
 
@@ -146,10 +148,11 @@ appendToQueryString pname pvalue req =
   req { qs = qs req ++ [(pname, pvalue)]
       }
 
-addHeader :: ToText a => String -> a -> Req -> Req
+addHeader :: ToHttpApiData a => String -> a -> Req -> Req
 addHeader name val req = req { headers = headers req
-                                      ++ [(name, toText val)]
+                                      ++ [(name, decodeUtf8 (toHeader val))]
                              }
+
 
 setRQBody :: IO JSVal -> MediaType -> Req -> Req
 setRQBody b t req = req { reqBody = Just (b, t) }
@@ -341,6 +344,7 @@ buildUrl req@(Req path qText mBody rAccept hs) baseurl =
         schemeText = case scheme of
                             Http -> "http:"
                             Https -> "https:"
+
 class Accept ctype => GHCJSUnrender ctype a where
   ghcjsUnrender :: Proxy ctype -> JSVal -> IO (Either String a)
 

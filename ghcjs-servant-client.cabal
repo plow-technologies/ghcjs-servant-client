@@ -1,5 +1,5 @@
 name:                ghcjs-servant-client
-version:             1.1.1
+version:             1.1.1.1
 synopsis:            undefined
 description:         undefined
 license:             MIT
@@ -29,12 +29,13 @@ library
                      , ghcjs-base
                      , ghcjs-ffiqq
                      , ghcjs-prim
+                     , http-api-data
                      , http-media
                      , http-types
                      , network-uri >= 2.6
                      , primitive
                      , safe
-                     , servant == 0.4.*
+                     , servant == 0.9.*
                      , split
                      , string-conversions
                      , text
